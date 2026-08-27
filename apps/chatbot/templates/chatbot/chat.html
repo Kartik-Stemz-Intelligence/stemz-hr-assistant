@@ -1,0 +1,1403 @@
+{% extends 'chatbot/base.html' %}
+
+{% block content %}
+<div class="flex h-screen">
+
+    <!-- ============================ SIDEBAR ============================ -->
+    <aside id="sidebar" class="w-72 shrink-0 bg-neutral-100 border-r border-neutral-200 flex flex-col hidden md:flex">
+        <div class="p-3 border-b border-neutral-200">
+            <button id="newChatBtn"
+                class="w-full flex items-center justify-center gap-2 bg-neutral-900 text-white rounded-lg py-2 px-3 text-sm font-medium hover:bg-neutral-800 transition">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                New chat
+            </button>
+        </div>
+
+        <div id="convList" class="flex-1 overflow-y-auto py-2 px-2 space-y-1">
+            <div class="text-xs text-neutral-400 text-center py-8 empty-state">Loading conversations…</div>
+        </div>
+    </aside>
+
+    <!-- ============================ MAIN ============================ -->
+    <div class="flex flex-col flex-1 min-w-0">
+
+        <header class="border-b border-neutral-200 py-4 px-6 flex items-center justify-between bg-white/70 backdrop-blur sticky top-0 z-10">
+            <div class="flex items-center gap-3 min-w-0">
+                <button id="toggleSidebar" class="md:hidden text-neutral-500 hover:text-neutral-900" aria-label="Toggle sidebar">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+                </button>
+                <div class="w-9 h-9 rounded-lg bg-neutral-900 flex items-center justify-center text-white font-semibold text-sm shrink-0">S</div>
+                <div class="min-w-0">
+                    <h1 id="chatTitle" class="text-sm font-semibold text-neutral-900 truncate">Stemz HR Assistant</h1>
+                    <p class="text-xs text-neutral-500">Grounded in company policy · v0.2</p>
+                </div>
+            </div>
+        </header>
+
+        <main id="messages" class="flex-1 overflow-y-auto px-6 py-8 space-y-6">
+            <div id="emptyState" class="text-center max-w-md mx-auto mt-16">
+                <div class="w-12 h-12 rounded-2xl bg-neutral-900 mx-auto mb-4 flex items-center justify-center text-white font-semibold">S</div>
+                <h2 class="text-lg font-semibold text-neutral-900 mb-2">How can I help?</h2>
+                <p class="text-sm text-neutral-500 mb-6">Ask me anything about Stemz HR policies. I answer only from current policy documents.</p>
+                <div class="grid grid-cols-1 gap-2 text-left">
+                    <button class="suggestion text-sm text-neutral-700 border border-neutral-200 rounded-lg px-4 py-2 hover:bg-neutral-100 transition text-left">
+                        How many late arrivals are allowed per month?
+                    </button>
+                    <button class="suggestion text-sm text-neutral-700 border border-neutral-200 rounded-lg px-4 py-2 hover:bg-neutral-100 transition text-left">
+                        What does Stemz do?
+                    </button>
+                    <button class="suggestion text-sm text-neutral-700 border border-neutral-200 rounded-lg px-4 py-2 hover:bg-neutral-100 transition text-left">
+                        Am I eligible for variable pay if I resign?
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <footer class="border-t border-neutral-200 px-6 py-4 bg-white">
+            <!-- Recording panel — replaces the form while recording -->
+            <div id="recordPanel" class="hidden">
+                <div class="flex items-center gap-4 border-2 border-rose-400 bg-rose-50 rounded-xl px-4 py-3">
+                    <div class="flex items-center gap-2 shrink-0">
+                        <span class="relative flex h-2.5 w-2.5">
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-600"></span>
+                        </span>
+                        <span class="text-xs font-semibold text-rose-700 uppercase tracking-wider">Listening</span>
+                    </div>
+                    <canvas id="waveCanvas" class="flex-1 h-10" style="max-width: 100%;"></canvas>
+                    <span id="recordTimer" class="text-sm font-mono font-semibold text-rose-700 tabular-nums shrink-0">0:00</span>
+                    <button
+                        type="button"
+                        id="stopRecordBtn"
+                        title="Stop recording"
+                        aria-label="Stop recording"
+                        class="shrink-0 bg-rose-600 hover:bg-rose-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition flex items-center gap-2"
+                    >
+                        <span class="w-3 h-3 bg-white rounded-sm"></span>
+                        Stop
+                    </button>
+                </div>
+                <p class="text-xs text-neutral-500 mt-2 text-center">Click Stop when you're done — the wave shows your mic is picking up sound.</p>
+            </div>
+
+            <!-- Uploaded document chip — shown when a doc is loaded into session -->
+            <div id="uploadChip" class="hidden mb-2 inline-flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-1.5 text-xs">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                <span class="text-indigo-700 font-medium">Answering from:</span>
+                <span id="uploadChipName" class="text-indigo-900 truncate max-w-xs"></span>
+                <span id="uploadChipChars" class="text-indigo-500"></span>
+                <button type="button" id="uploadChipClear" title="Remove uploaded document" class="ml-1 text-indigo-400 hover:text-rose-600 text-base leading-none">&times;</button>
+            </div>
+
+            <!-- Hidden file picker triggered by paperclip -->
+            <input type="file" id="uploadInput" class="hidden" accept=".pdf,.docx,.txt,.md" />
+
+            <!-- Normal input form -->
+            <form id="chatForm" class="flex gap-2 items-end">
+                <div class="flex-1 border border-neutral-300 rounded-xl focus-within:ring-2 focus-within:ring-neutral-400 focus-within:border-neutral-400 transition relative">
+                    <textarea
+                        id="input"
+                        rows="1"
+                        placeholder="Ask about attendance, WFH, variable pay…"
+                        class="w-full resize-none px-4 py-3 pr-20 text-sm bg-transparent focus:outline-none rounded-xl"
+                    ></textarea>
+                    <button
+                        type="button"
+                        id="uploadBtn"
+                        title="Attach a document (PDF, DOCX, TXT, MD)"
+                        aria-label="Upload document"
+                        class="absolute right-11 top-1/2 -translate-y-1/2 p-2 rounded-lg text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                    </button>
+                    <button
+                        type="button"
+                        id="micBtn"
+                        title="Speak your question (English)"
+                        aria-label="Record voice input"
+                        class="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition"
+                    >
+                        <svg id="micIcon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+                    </button>
+                </div>
+                <button
+                    type="submit"
+                    id="sendBtn"
+                    class="bg-neutral-900 text-white rounded-xl px-5 py-3 text-sm font-medium hover:bg-neutral-800 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                >Send</button>
+            </form>
+            <div id="micStatus" class="hidden text-xs text-neutral-500 mt-2 text-center"></div>
+            <p id="chatFooterHint" class="text-xs text-neutral-400 mt-2 text-center">Answers are grounded in current policy documents.</p>
+        </footer>
+    </div>
+</div>
+
+<!-- ============================== Ask HR Modal ============================ -->
+<div id="askHrModal" class="hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+        <div class="px-6 py-4 border-b border-neutral-200 flex items-center justify-between">
+            <div>
+                <h3 class="text-base font-semibold text-neutral-900">Ask HR directly</h3>
+                <p class="text-xs text-neutral-500 mt-0.5">Your question + the bot's answer will be sent to HR. They'll reply to your email.</p>
+            </div>
+            <button type="button" id="askHrClose" class="text-neutral-400 hover:text-neutral-700 text-xl leading-none">&times;</button>
+        </div>
+
+        <form id="askHrForm" class="px-6 py-4 space-y-3">
+            <div>
+                <label class="block text-xs font-medium text-neutral-700 mb-1">Your name</label>
+                <input type="text" id="askHrName" required
+                       class="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900" />
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-neutral-700 mb-1">Your work email</label>
+                <input type="email" id="askHrEmail" required
+                       class="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900" />
+                <p class="text-[11px] text-neutral-400 mt-1">HR will reply here. We save your name + email in this browser only.</p>
+            </div>
+            <div class="bg-neutral-50 border border-neutral-200 rounded-lg p-3">
+                <div class="text-[11px] text-neutral-500 uppercase tracking-wider font-medium mb-1">Your question</div>
+                <div id="askHrQuestion" class="text-sm text-neutral-800 whitespace-pre-wrap"></div>
+            </div>
+            <div id="askHrAnswerBox" class="bg-neutral-50 border border-neutral-200 rounded-lg p-3">
+                <div class="text-[11px] text-neutral-500 uppercase tracking-wider font-medium mb-1">AI's answer (will be sent to HR)</div>
+                <div id="askHrAnswer" class="text-sm text-neutral-700 whitespace-pre-wrap max-h-40 overflow-y-auto"></div>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-neutral-700 mb-1">Your concern or doubt <span class="text-neutral-400 font-normal">(optional)</span></label>
+                <textarea id="askHrNote" rows="3"
+                          class="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900 resize-none"
+                          placeholder="e.g. 'The answer doesn't cover my case because…' or 'I need clarification on…'"></textarea>
+            </div>
+            <div id="askHrStatus" class="hidden text-xs text-center"></div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button type="button" id="askHrCancel"
+                        class="px-4 py-2 text-sm text-neutral-600 hover:text-neutral-900">Cancel</button>
+                <button type="submit" id="askHrSubmit"
+                        class="bg-neutral-900 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-neutral-800 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                    Send to HR
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ================================ SCRIPT ================================ -->
+<script>
+(function() {
+    // ---------- Elements ----------
+    const form = document.getElementById('chatForm');
+    const input = document.getElementById('input');
+    const messages = document.getElementById('messages');
+    const emptyState = document.getElementById('emptyState');
+    const sendBtn = document.getElementById('sendBtn');
+    const suggestions = document.querySelectorAll('.suggestion');
+    const newChatBtn = document.getElementById('newChatBtn');
+    const convList = document.getElementById('convList');
+    const sidebar = document.getElementById('sidebar');
+    const toggleSidebarBtn = document.getElementById('toggleSidebar');
+    const chatTitleEl = document.getElementById('chatTitle');
+    const micBtn = document.getElementById('micBtn');
+    // Ask HR modal
+    const askHrModal = document.getElementById('askHrModal');
+    const askHrForm = document.getElementById('askHrForm');
+    const askHrClose = document.getElementById('askHrClose');
+    const askHrCancel = document.getElementById('askHrCancel');
+    const askHrSubmit = document.getElementById('askHrSubmit');
+    const askHrName = document.getElementById('askHrName');
+    const askHrEmail = document.getElementById('askHrEmail');
+    const askHrNote = document.getElementById('askHrNote');
+    const askHrQuestion = document.getElementById('askHrQuestion');
+    const askHrAnswer = document.getElementById('askHrAnswer');
+    const askHrAnswerBox = document.getElementById('askHrAnswerBox');
+    const askHrStatus = document.getElementById('askHrStatus');
+    const micStatus = document.getElementById('micStatus');
+    const chatFooterHint = document.getElementById('chatFooterHint');
+    const recordPanel = document.getElementById('recordPanel');
+    const waveCanvas = document.getElementById('waveCanvas');
+    const recordTimer = document.getElementById('recordTimer');
+    const stopRecordBtn = document.getElementById('stopRecordBtn');
+    // Uploaded document
+    const uploadBtn = document.getElementById('uploadBtn');
+    const uploadInput = document.getElementById('uploadInput');
+    const uploadChip = document.getElementById('uploadChip');
+    const uploadChipName = document.getElementById('uploadChipName');
+    const uploadChipChars = document.getElementById('uploadChipChars');
+    const uploadChipClear = document.getElementById('uploadChipClear');
+
+    // ---------- State ----------
+    let conversations = [];
+    let currentConversationId = sessionStorage.getItem('currentConversationId') || null;
+    let isBusy = false;
+    let activeAbortController = null;
+
+    // Voice recording state
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let mediaStream = null;
+    let isRecording = false;
+    let isTranscribing = false;
+
+    // Waveform visualisation state
+    let audioContext = null;
+    let audioAnalyser = null;
+    let waveAnimationId = null;
+    let recordStartTime = 0;
+    let timerIntervalId = null;
+
+    // ---------- Confidence badge ----------
+    const CONFIDENCE_STYLES = {
+        high:    { label: 'High confidence',   cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200', dot: 'bg-emerald-500' },
+        medium:  { label: 'Medium confidence', cls: 'bg-amber-50 text-amber-700 border border-amber-200',     dot: 'bg-amber-500' },
+        low:     { label: 'Low confidence',    cls: 'bg-rose-50 text-rose-700 border border-rose-200',        dot: 'bg-rose-500' },
+        refused: { label: 'Escalated to HR',   cls: 'bg-neutral-100 text-neutral-600 border border-neutral-300', dot: 'bg-neutral-500' },
+    };
+
+    // ---------- Helpers ----------
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    // "2026-05-04" -> "4 May 2026". Any unparseable value passes through.
+    function fmtDate(iso) {
+        if (!iso) return '';
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+        if (!m) return iso;
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return `${parseInt(m[3], 10)} ${months[parseInt(m[2], 10) - 1]} ${m[1]}`;
+    }
+
+    // ---------- Chat timestamps ----------
+    // WhatsApp/Slack pattern — date separator at day boundaries, small time
+    // label under each message. Timestamps come from the server for
+    // historical messages and `new Date()` for live ones.
+    //
+    // All formatting forces IST (Asia/Kolkata) via Intl.DateTimeFormat so the
+    // display is consistent regardless of the viewer's browser timezone.
+    const IST_TZ = 'Asia/Kolkata';
+
+    // Coerce ISO string or Date; falls back to now for invalid input.
+    function coerceDate(input) {
+        if (!input) return new Date();
+        if (input instanceof Date) return input;
+        const d = new Date(input);
+        return isNaN(d.getTime()) ? new Date() : d;
+    }
+
+    // Extract IST-based Y/M/D/weekday for a Date instance — via Intl parts so
+    // it's tz-safe regardless of the browser's local zone.
+    function _istParts(date) {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+            timeZone: IST_TZ,
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            weekday: 'long',
+        }).formatToParts(date);
+        const map = {};
+        for (const p of parts) map[p.type] = p.value;
+        return map;
+    }
+
+    // True iff `a` and `b` fall on the same calendar day in IST.
+    function sameDay(a, b) {
+        if (!a || !b) return false;
+        const pa = _istParts(a), pb = _istParts(b);
+        return pa.year === pb.year && pa.month === pb.month && pa.day === pb.day;
+    }
+
+    // "14:32 IST" — 24-hour, always IST.
+    function formatTime(date) {
+        const t = date.toLocaleTimeString('en-GB', {
+            timeZone: IST_TZ, hour: '2-digit', minute: '2-digit', hour12: false,
+        });
+        return `${t} IST`;
+    }
+
+    // "Today" / "Yesterday" / "Wednesday, 27 July 2026" — day boundary in IST.
+    function formatDayLabel(date) {
+        const now = new Date();
+        const yesterday = new Date(now.getTime() - 86400000);
+        if (sameDay(date, now))       return 'Today';
+        if (sameDay(date, yesterday)) return 'Yesterday';
+        const p = _istParts(date);
+        const monthFull = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        return `${p.weekday}, ${parseInt(p.day, 10)} ${monthFull[parseInt(p.month, 10) - 1]} ${p.year}`;
+    }
+
+    // Tracks the last rendered message's date so date separators only appear
+    // at day boundaries. Reset via resetTimeline() before rendering a fresh
+    // conversation or the empty state.
+    let lastMessageDate = null;
+
+    function resetTimeline() { lastMessageDate = null; }
+
+    function maybeInsertDateSeparator(date) {
+        if (!lastMessageDate || !sameDay(lastMessageDate, date)) {
+            const sep = document.createElement('div');
+            sep.className = 'flex items-center gap-3 my-4';
+            sep.innerHTML = `
+                <div class="flex-1 border-t border-neutral-200"></div>
+                <span class="text-[11px] text-neutral-500 font-medium uppercase tracking-wider">${escapeHtml(formatDayLabel(date))}</span>
+                <div class="flex-1 border-t border-neutral-200"></div>
+            `;
+            messages.appendChild(sep);
+        }
+        lastMessageDate = date;
+    }
+
+    function timestampEl(date, alignRight) {
+        const el = document.createElement('div');
+        el.className = `text-[10px] text-neutral-400 mt-0.5 ${alignRight ? 'text-right pr-1' : 'text-left pl-1'}`;
+        el.textContent = formatTime(date);
+        return el;
+    }
+
+    function scrollBottom() {
+        messages.scrollTop = messages.scrollHeight;
+    }
+
+    function autoResize() {
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+    }
+
+    function clearMessagesPane() {
+        messages.innerHTML = '';
+    }
+
+    // Starter prompts shown on any empty state (fresh page or after "New Chat").
+    // Change this array to update suggestions everywhere.
+    const STARTER_SUGGESTIONS = [
+        'How many late arrivals are allowed per month?',
+        'What does Stemz do?',
+        'Am I eligible for variable pay if I resign?',
+    ];
+
+    function showEmptyState(title) {
+        chatTitleEl.textContent = title || 'Stemz HR Assistant';
+        clearMessagesPane();
+        resetTimeline();
+        const wrap = document.createElement('div');
+        wrap.id = 'emptyState';
+        wrap.className = 'text-center max-w-md mx-auto mt-16';
+        const suggestionsHtml = STARTER_SUGGESTIONS
+            .map(s => `<button type="button" class="suggestion text-sm text-neutral-700 border border-neutral-200 rounded-lg px-4 py-2 hover:bg-neutral-100 transition text-left">${escapeHtml(s)}</button>`)
+            .join('');
+        wrap.innerHTML = `
+            <div class="w-12 h-12 rounded-2xl bg-neutral-900 mx-auto mb-4 flex items-center justify-center text-white font-semibold">S</div>
+            <h2 class="text-lg font-semibold text-neutral-900 mb-2">How can I help?</h2>
+            <p class="text-sm text-neutral-500 mb-6">Ask me anything about Stemz HR policies. I answer only from current policy documents.</p>
+            <div class="grid grid-cols-1 gap-2 text-left">${suggestionsHtml}</div>
+        `;
+        messages.appendChild(wrap);
+    }
+
+    function clearEmptyStateIfPresent() {
+        const es = document.getElementById('emptyState');
+        if (es) es.remove();
+    }
+
+    // ---------- Time grouping ----------
+    // Bucket a conversation by IST calendar day, not the viewer's local
+    // browser tz — so a 23:00 IST conversation viewed from a browser abroad
+    // still shows under "Today".
+    function groupBucket(dateStr) {
+        const d = new Date(dateStr);
+        const now = new Date();
+        if (sameDay(d, now)) return 'Today';
+        const yesterday = new Date(now.getTime() - 86400000);
+        if (sameDay(d, yesterday)) return 'Yesterday';
+        const sevenAgo = new Date(now.getTime() - 7 * 86400000);
+        if (d >= sevenAgo) return 'Last 7 days';
+        return 'Older';
+    }
+
+    // ---------- Render sidebar ----------
+    function renderSidebar() {
+        convList.innerHTML = '';
+        if (conversations.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'text-xs text-neutral-400 text-center py-8';
+            empty.textContent = 'No conversations yet';
+            convList.appendChild(empty);
+            return;
+        }
+
+        // Group by bucket, preserve order (already newest-first from server)
+        const groups = {};
+        const order = ['Today', 'Yesterday', 'Last 7 days', 'Older'];
+        conversations.forEach(c => {
+            const bucket = groupBucket(c.updated_at);
+            if (!groups[bucket]) groups[bucket] = [];
+            groups[bucket].push(c);
+        });
+
+        order.forEach(bucket => {
+            if (!groups[bucket]) return;
+            const header = document.createElement('div');
+            header.className = 'text-[10px] uppercase tracking-wider text-neutral-400 font-semibold px-2 mt-3 mb-1';
+            header.textContent = bucket;
+            convList.appendChild(header);
+
+            groups[bucket].forEach(c => convList.appendChild(convItem(c)));
+        });
+    }
+
+    function convItem(c) {
+        const isActive = String(c.id) === String(currentConversationId);
+        const wrap = document.createElement('div');
+        wrap.className = `group relative rounded-lg text-sm cursor-pointer transition ${isActive ? 'bg-neutral-900 text-white' : 'text-neutral-700 hover:bg-neutral-200'}`;
+        wrap.dataset.convId = c.id;
+
+        const titleBtn = document.createElement('button');
+        titleBtn.className = 'w-full text-left px-3 py-2 pr-9 truncate';
+        titleBtn.textContent = c.title;
+        titleBtn.addEventListener('click', () => openConversation(c.id));
+        wrap.appendChild(titleBtn);
+
+        // Hover menu
+        const menuBtn = document.createElement('button');
+        menuBtn.className = `absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus:opacity-100 p-1.5 rounded ${isActive ? 'hover:bg-neutral-700' : 'hover:bg-neutral-300'}`;
+        menuBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>`;
+        menuBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMenu(c.id, menuBtn); });
+        wrap.appendChild(menuBtn);
+        return wrap;
+    }
+
+    function toggleMenu(convId, anchorBtn) {
+        // Remove any open menu
+        document.querySelectorAll('.conv-menu').forEach(m => m.remove());
+
+        const menu = document.createElement('div');
+        menu.className = 'conv-menu absolute right-1 top-9 z-20 bg-white border border-neutral-200 rounded-lg shadow-md py-1 text-neutral-700 text-sm';
+        menu.innerHTML = `
+            <button data-action="rename" class="block w-full text-left px-3 py-1.5 hover:bg-neutral-100">Rename</button>
+            <button data-action="delete" class="block w-full text-left px-3 py-1.5 hover:bg-neutral-100 text-rose-600">Delete</button>
+        `;
+        anchorBtn.parentElement.appendChild(menu);
+
+        menu.querySelector('[data-action="rename"]').addEventListener('click', (e) => {
+            e.stopPropagation();
+            menu.remove();
+            beginRename(convId);
+        });
+        menu.querySelector('[data-action="delete"]').addEventListener('click', (e) => {
+            e.stopPropagation();
+            menu.remove();
+            deleteConversation(convId);
+        });
+
+        // Click outside closes
+        setTimeout(() => {
+            const closer = (ev) => {
+                if (!menu.contains(ev.target)) {
+                    menu.remove();
+                    document.removeEventListener('click', closer);
+                }
+            };
+            document.addEventListener('click', closer);
+        }, 0);
+    }
+
+    function beginRename(convId) {
+        const item = convList.querySelector(`[data-conv-id="${convId}"]`);
+        if (!item) return;
+        const conv = conversations.find(c => String(c.id) === String(convId));
+        if (!conv) return;
+
+        item.innerHTML = '';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = conv.title;
+        input.className = 'w-full px-3 py-2 text-sm bg-white border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-400';
+        input.maxLength = 120;
+        item.appendChild(input);
+        input.focus();
+        input.select();
+
+        const commit = async () => {
+            const newTitle = input.value.trim();
+            if (!newTitle || newTitle === conv.title) {
+                renderSidebar();
+                return;
+            }
+            try {
+                const resp = await fetch(`/api/conversations/${convId}/`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title: newTitle }),
+                });
+                if (!resp.ok) throw new Error('Rename failed');
+                const updated = await resp.json();
+                conv.title = updated.title;
+                if (String(conv.id) === String(currentConversationId)) {
+                    chatTitleEl.textContent = updated.title;
+                }
+            } catch (err) {
+                console.error(err);
+            } finally {
+                renderSidebar();
+            }
+        };
+
+        input.addEventListener('blur', commit);
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+            if (e.key === 'Escape') { e.preventDefault(); renderSidebar(); }
+        });
+    }
+
+    async function deleteConversation(convId) {
+        if (!confirm('Delete this conversation? This cannot be undone.')) return;
+        try {
+            const resp = await fetch(`/api/conversations/${convId}/`, { method: 'DELETE' });
+            if (!resp.ok && resp.status !== 204) throw new Error('Delete failed');
+            conversations = conversations.filter(c => String(c.id) !== String(convId));
+            if (String(currentConversationId) === String(convId)) {
+                currentConversationId = null;
+                sessionStorage.removeItem('currentConversationId');
+                showEmptyState();
+            }
+            renderSidebar();
+        } catch (err) {
+            console.error(err);
+            alert('Failed to delete conversation');
+        }
+    }
+
+    // ---------- Fetching ----------
+    async function loadConversations() {
+        try {
+            const resp = await fetch('/api/conversations/');
+            if (!resp.ok) throw new Error('Failed to load conversations');
+            const data = await resp.json();
+            conversations = data.conversations;
+            renderSidebar();
+        } catch (err) {
+            console.error(err);
+            convList.innerHTML = '<div class="text-xs text-rose-500 text-center py-8">Failed to load</div>';
+        }
+    }
+
+    async function openConversation(convId) {
+        if (isBusy && activeAbortController) activeAbortController.abort();
+        currentConversationId = String(convId);
+        sessionStorage.setItem('currentConversationId', currentConversationId);
+        clearMessagesPane();
+        resetTimeline();
+
+        try {
+            const resp = await fetch(`/api/conversations/${convId}/`);
+            if (!resp.ok) throw new Error('Failed to load conversation');
+            const data = await resp.json();
+            chatTitleEl.textContent = data.title;
+            data.messages.forEach(m => {
+                if (m.role === 'user') {
+                    addUserMessage(m.content, m.created_at);
+                } else {
+                    const bot = addBotMessage(m.created_at);
+                    bot.body.textContent = m.content;
+                    // Prefer server-derived tier (correctly returns 'refused'
+                    // for guardrail refusals); fall back to score-based tier
+                    // for older messages persisted before this field existed.
+                    const tier = m.confidence
+                        || ((m.top_score !== null && m.top_score !== undefined) ? tierFromScore(m.top_score) : null);
+                    if (m.source) {
+                        renderSource(bot, m.source, tier);
+                    }
+                    if (tier) {
+                        setConfidence(bot.confidence, tier);
+                        bot.confidence.classList.remove('hidden');
+                    }
+                }
+            });
+            renderSidebar();  // re-render to highlight active
+            scrollBottom();
+        } catch (err) {
+            console.error(err);
+            showEmptyState();
+        }
+    }
+
+    function tierFromScore(s) {
+        if (s >= 0.7) return 'high';
+        if (s >= 0.3) return 'medium';
+        return 'low';
+    }
+
+    // ---------- Message rendering ----------
+    function addUserMessage(text, timestamp) {
+        clearEmptyStateIfPresent();
+        const date = coerceDate(timestamp);
+        maybeInsertDateSeparator(date);
+        const wrap = document.createElement('div');
+        wrap.className = 'flex flex-col items-end';
+        wrap.dataset.role = 'user';               // durable marker for findUserQuestionForBot
+        wrap.dataset.messageText = text;          // exact text without timestamp noise
+        wrap.innerHTML = `<div class="msg-bubble max-w-[80%] bg-neutral-900 text-white rounded-2xl rounded-br-md px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap">${escapeHtml(text)}</div>`;
+        wrap.appendChild(timestampEl(date, true));
+        messages.appendChild(wrap);
+        scrollBottom();
+    }
+
+    function addBotMessage(timestamp) {
+        clearEmptyStateIfPresent();
+        const date = coerceDate(timestamp);
+        maybeInsertDateSeparator(date);
+        const wrap = document.createElement('div');
+        wrap.className = 'flex flex-col items-start gap-1 max-w-[80%]';
+        wrap.dataset.role = 'assistant';
+        wrap.innerHTML = `
+            <div class="bot-body bg-white border border-neutral-200 rounded-2xl rounded-bl-md px-4 py-2.5 text-sm leading-relaxed text-neutral-900 whitespace-pre-wrap self-stretch">
+                <span class="text-neutral-400 typing">Thinking…</span>
+            </div>
+            <div class="text-[10px] text-neutral-400 mt-0.5 pl-1">${escapeHtml(formatTime(date))}</div>
+            <span class="confidence hidden inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ml-1 mt-1"></span>
+            <div class="source-card hidden ml-1 mt-1 w-full border border-neutral-200 bg-neutral-50 rounded-lg px-3 py-2 text-xs">
+                <div class="flex items-start gap-2">
+                    <span class="shrink-0 mt-0.5">📄</span>
+                    <div class="flex-1 min-w-0">
+                        <div class="src-heading font-medium text-neutral-800"></div>
+                        <div class="src-meta text-neutral-500 mt-0.5"></div>
+                    </div>
+                </div>
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
+                    <button type="button" class="verify-btn text-neutral-600 hover:text-neutral-900 underline decoration-dotted underline-offset-2">
+                        Show excerpt
+                    </button>
+                    <span class="text-neutral-300">·</span>
+                    <button type="button" class="askhr-btn text-neutral-600 hover:text-rose-700">
+                        Something not right? Ask HR
+                    </button>
+                </div>
+                <div class="excerpt hidden mt-2 pt-2 border-t border-neutral-200 text-neutral-700 whitespace-pre-wrap font-mono text-[11px] leading-relaxed max-h-64 overflow-y-auto"></div>
+            </div>
+            <details class="debug hidden ml-1 text-xs text-neutral-400 cursor-pointer w-full">
+                <summary class="hover:text-neutral-600">Retrieval debug</summary>
+                <div class="debug-content mt-1 font-mono"></div>
+            </details>
+        `;
+        messages.appendChild(wrap);
+        scrollBottom();
+        return {
+            root: wrap,
+            body: wrap.querySelector('.bot-body'),
+            confidence: wrap.querySelector('.confidence'),
+            sourceCard: wrap.querySelector('.source-card'),
+            srcHeading: wrap.querySelector('.src-heading'),
+            srcMeta: wrap.querySelector('.src-meta'),
+            verifyBtn: wrap.querySelector('.verify-btn'),
+            askHrBtn: wrap.querySelector('.askhr-btn'),
+            excerpt: wrap.querySelector('.excerpt'),
+            debug: wrap.querySelector('.debug'),
+            debugContent: wrap.querySelector('.debug-content'),
+        };
+    }
+
+    // Fill the source card + wire click-to-verify. `source` may be null (older
+    // messages without frontmatter) — then we hide the card entirely.
+    // `confidence` optional: 'high' | 'medium' | 'low' | 'refused' — controls
+    // how prominent the "Ask HR" callout is (subtle on high, loud on low).
+    function renderSource(bot, source, confidence) {
+        if (!source || !source.doc_title) {
+            bot.sourceCard.classList.add('hidden');
+            return;
+        }
+        const section = source.section ? `${escapeHtml(source.section)} — ` : '';
+        bot.srcHeading.innerHTML = `${section}${escapeHtml(source.doc_title)}`;
+
+        const cardBase = 'source-card ml-1 mt-1 w-full rounded-lg px-3 py-2 text-xs border';
+        const askBase = 'askhr-btn';
+
+        // Uploaded-document mode — completely different look. The doc is
+        // the user's own file, so "Ask HR" makes no sense here.
+        if (source.is_uploaded || source.status === 'uploaded') {
+            bot.sourceCard.className = `${cardBase} bg-indigo-50 border-indigo-200`;
+            bot.srcMeta.textContent = 'Answered from your uploaded document (not from company policies)';
+            bot.askHrBtn.classList.add('hidden');
+            bot.sourceCard.classList.remove('hidden');
+            // Click-to-verify: show first ~1500 chars of the doc as excerpt
+            bot.verifyBtn.onclick = () => {
+                const hidden = bot.excerpt.classList.contains('hidden');
+                if (hidden) {
+                    bot.excerpt.textContent = source.excerpt || '(No excerpt available)';
+                    bot.excerpt.classList.remove('hidden');
+                    bot.verifyBtn.textContent = 'Hide excerpt';
+                } else {
+                    bot.excerpt.classList.add('hidden');
+                    bot.verifyBtn.textContent = 'Show excerpt';
+                }
+            };
+            return;
+        }
+
+        // Policy-mode source card (default) — show version/date/approver.
+        const parts = [];
+        if (source.version)        parts.push(`v${escapeHtml(source.version)}`);
+        if (source.effective_date) parts.push(`Effective ${escapeHtml(fmtDate(source.effective_date))}`);
+        if (source.approved_by)    parts.push(`Approved by ${escapeHtml(source.approved_by)}`);
+        bot.srcMeta.textContent = parts.join(' · ') || 'Metadata pending HR review';
+
+        bot.askHrBtn.classList.remove('hidden');   // in case a prior render hid it
+
+        // Confidence-based prominence for the "Ask HR" callout.
+        if (confidence === 'medium') {
+            bot.sourceCard.className = `${cardBase} bg-amber-50 border-amber-200`;
+            bot.askHrBtn.className = `${askBase} font-medium text-amber-700 hover:text-amber-900`;
+            bot.askHrBtn.textContent = '⚠ This may not cover your case — ask HR to confirm';
+        } else if (confidence === 'low' || confidence === 'refused') {
+            bot.sourceCard.className = `${cardBase} bg-rose-50 border-rose-200`;
+            bot.askHrBtn.className = `${askBase} font-medium text-rose-700 hover:text-rose-900`;
+            bot.askHrBtn.textContent = '→ Ask HR directly';
+        } else {
+            bot.sourceCard.className = `${cardBase} bg-neutral-50 border-neutral-200`;
+            bot.askHrBtn.className = `${askBase} text-neutral-600 hover:text-rose-700`;
+            bot.askHrBtn.textContent = 'Something not right? Ask HR';
+        }
+
+        bot.sourceCard.classList.remove('hidden');
+
+        // Wire click-to-verify (idempotent — safe to call multiple times).
+        bot.verifyBtn.onclick = () => {
+            const hidden = bot.excerpt.classList.contains('hidden');
+            if (hidden) {
+                bot.excerpt.textContent = source.excerpt || '(No excerpt available)';
+                bot.excerpt.classList.remove('hidden');
+                bot.verifyBtn.textContent = 'Hide excerpt';
+            } else {
+                bot.excerpt.classList.add('hidden');
+                bot.verifyBtn.textContent = 'Show excerpt';
+            }
+        };
+
+        bot.askHrBtn.onclick = () => openAskHr(bot);
+    }
+
+    // ---------- Uploaded document ----------
+    function showUploadChip(filename, chars) {
+        uploadChipName.textContent = filename;
+        uploadChipChars.textContent = chars ? `(${chars.toLocaleString()} chars)` : '';
+        uploadChip.classList.remove('hidden');
+        input.placeholder = `Ask about ${filename}…`;
+    }
+
+    function hideUploadChip() {
+        uploadChip.classList.add('hidden');
+        uploadChipName.textContent = '';
+        uploadChipChars.textContent = '';
+        input.placeholder = 'Ask about attendance, WFH, variable pay…';
+    }
+
+    async function refreshUploadChip() {
+        try {
+            const resp = await fetch('/api/upload/');
+            const data = await resp.json();
+            if (data.filename) showUploadChip(data.filename, data.chars);
+            else hideUploadChip();
+        } catch (e) { /* silent — the chip just stays hidden */ }
+    }
+
+    async function uploadFile(file) {
+        if (!file) return;
+        // Optimistic feedback while the upload is in flight
+        showUploadChip(file.name, 0);
+        uploadChipChars.textContent = '(uploading…)';
+        const fd = new FormData();
+        fd.append('file', file);
+        try {
+            const resp = await fetch('/api/upload/', { method: 'POST', body: fd });
+            const data = await resp.json();
+            if (!resp.ok || !data.ok) {
+                hideUploadChip();
+                alert(data.error || `Upload failed (HTTP ${resp.status})`);
+                return;
+            }
+            showUploadChip(data.filename, data.chars);
+        } catch (err) {
+            hideUploadChip();
+            alert('Upload failed: ' + err.message);
+        }
+    }
+
+    async function clearUpload() {
+        try {
+            await fetch('/api/upload/', { method: 'DELETE' });
+        } catch (e) { /* ignore — chip hides regardless */ }
+        hideUploadChip();
+    }
+
+    uploadBtn.addEventListener('click', () => uploadInput.click());
+    uploadInput.addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (file) uploadFile(file);
+        uploadInput.value = '';   // allow re-uploading the same file name later
+    });
+    uploadChipClear.addEventListener('click', clearUpload);
+
+    // ---------- Ask HR modal ----------
+    let askHrContext = null;  // { question, bot_answer } captured when modal opens
+
+    function findUserQuestionForBot(bot) {
+        // Walk backwards through siblings looking for the nearest user
+        // message. Uses data-role (durable marker) instead of class names
+        // (which drift when the message HTML gets restyled), and pulls
+        // dataset.messageText so timestamps/etc. don't leak into the string.
+        let node = bot.root.previousElementSibling;
+        while (node) {
+            if (node.dataset && node.dataset.role === 'user') {
+                return node.dataset.messageText
+                    || (node.querySelector('.msg-bubble')?.textContent || '').trim();
+            }
+            node = node.previousElementSibling;
+        }
+        return '';
+    }
+
+    function openAskHr(bot) {
+        // Restore saved identity so returning users don't re-type name/email.
+        try {
+            const saved = JSON.parse(localStorage.getItem('askhr_identity') || '{}');
+            if (saved.name)  askHrName.value = saved.name;
+            if (saved.email) askHrEmail.value = saved.email;
+        } catch (e) { /* ignore */ }
+
+        askHrNote.value = '';
+        askHrStatus.classList.add('hidden');
+        askHrStatus.textContent = '';
+        askHrSubmit.disabled = false;
+
+        const question = findUserQuestionForBot(bot);
+        // The bubble contains a `.typing` placeholder ("Thinking…", "Searching
+        // policies…", "Composing answer with Sonnet…") until the first real
+        // token arrives and clears innerHTML. Presence of that element is the
+        // reliable signal — safer than string-sniffing for placeholder text.
+        const isPlaceholder = bot.body.querySelector('.typing') !== null;
+        const botAnswer = isPlaceholder ? '' : (bot.body.textContent || '').trim();
+
+        askHrQuestion.textContent = question || '(no question found in this conversation)';
+        // Always show the AI answer box — even refusals + empty states are
+        // useful context for HR ("the AI couldn't answer this, please help").
+        if (botAnswer) {
+            askHrAnswer.textContent = botAnswer;
+            askHrAnswer.className = 'text-sm text-neutral-700 whitespace-pre-wrap max-h-40 overflow-y-auto';
+        } else {
+            askHrAnswer.textContent = '(No answer generated yet)';
+            askHrAnswer.className = 'text-sm text-neutral-400 italic whitespace-pre-wrap max-h-40 overflow-y-auto';
+        }
+        askHrAnswerBox.classList.remove('hidden');
+
+        askHrContext = { question, bot_answer: botAnswer };
+        askHrModal.classList.remove('hidden');
+        // Focus the first empty required field
+        setTimeout(() => {
+            if (!askHrName.value)      askHrName.focus();
+            else if (!askHrEmail.value) askHrEmail.focus();
+            else                        askHrNote.focus();
+        }, 50);
+    }
+
+    function closeAskHr() {
+        askHrModal.classList.add('hidden');
+        askHrContext = null;
+    }
+
+    askHrClose.addEventListener('click', closeAskHr);
+    askHrCancel.addEventListener('click', closeAskHr);
+    askHrModal.addEventListener('click', (e) => {
+        if (e.target === askHrModal) closeAskHr();  // backdrop click
+    });
+
+    askHrForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = askHrName.value.trim();
+        const email = askHrEmail.value.trim();
+        const note = askHrNote.value.trim();
+
+        if (!name || !email || !askHrContext) return;
+
+        // Persist identity for next time
+        try {
+            localStorage.setItem('askhr_identity', JSON.stringify({ name, email }));
+        } catch (e) { /* ignore */ }
+
+        askHrSubmit.disabled = true;
+        askHrStatus.classList.remove('hidden');
+        askHrStatus.className = 'text-xs text-center text-neutral-500';
+        askHrStatus.textContent = 'Sending to HR…';
+
+        try {
+            const resp = await fetch('/api/ask-hr/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    conversation_id: currentConversationId,
+                    name, email, note,
+                    question: askHrContext.question,
+                    bot_answer: askHrContext.bot_answer,
+                }),
+            });
+            const data = await resp.json();
+            if (resp.ok && data.ok) {
+                askHrStatus.className = 'text-xs text-center text-emerald-600';
+                askHrStatus.textContent = data.message || 'Sent to HR.';
+                setTimeout(closeAskHr, 1400);
+            } else {
+                askHrStatus.className = 'text-xs text-center text-rose-600';
+                askHrStatus.textContent = data.error || `Failed (HTTP ${resp.status})`;
+                askHrSubmit.disabled = false;
+            }
+        } catch (err) {
+            askHrStatus.className = 'text-xs text-center text-rose-600';
+            askHrStatus.textContent = 'Network error: ' + err.message;
+            askHrSubmit.disabled = false;
+        }
+    });
+
+    function setConfidence(el, tier) {
+        const style = CONFIDENCE_STYLES[tier];
+        if (!style) return;
+        el.className = 'confidence inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ' + style.cls;
+        el.innerHTML = `<span class="w-1.5 h-1.5 rounded-full ${style.dot}"></span>${style.label}`;
+    }
+
+    // ---------- Sending ----------
+    async function sendMessage(text) {
+        if (isBusy || !text.trim()) return;
+        isBusy = true;
+        sendBtn.disabled = true;
+        activeAbortController = new AbortController();
+
+        addUserMessage(text.trim());
+        input.value = '';
+        autoResize();
+
+        const bot = addBotMessage();
+        let botText = '';
+        let cleared = false;
+
+        try {
+            const resp = await fetch('/api/chat/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: text.trim(),
+                    conversation_id: currentConversationId ? Number(currentConversationId) : null,
+                }),
+                signal: activeAbortController.signal,
+            });
+
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.error || `HTTP ${resp.status}`);
+            }
+
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const events = buffer.split('\n\n');
+                buffer = events.pop();
+                for (const evt of events) {
+                    if (!evt.startsWith('data: ')) continue;
+                    let data;
+                    try { data = JSON.parse(evt.slice(6)); } catch { continue; }
+
+                    if (data.type === 'meta') {
+                        // Server tells us which conversation this is; store it
+                        if (data.conversation_id) {
+                            currentConversationId = String(data.conversation_id);
+                            sessionStorage.setItem('currentConversationId', currentConversationId);
+                        }
+                        if (data.is_new_conversation) {
+                            // Add optimistic entry to sidebar
+                            conversations.unshift({
+                                id: data.conversation_id,
+                                title: text.trim().slice(0, 60),
+                                has_title: false,
+                                updated_at: new Date().toISOString(),
+                                created_at: new Date().toISOString(),
+                                snippet: '',
+                                message_count: 1,
+                            });
+                            renderSidebar();
+                        }
+                    } else if (data.type === 'debug') {
+                        bot.debug.classList.remove('hidden');
+                        bot.debugContent.textContent =
+                            `Model: ${data.model || 'n/a'}\n` +
+                            `Rerank score: ${data.top_score}\n` +
+                            `Cosine sim: ${data.top_sim}\n` +
+                            `Retrieved: ${data.retrieved.join(', ')}`;
+                    } else if (data.type === 'status') {
+                        // Progress label while we wait for retrieval / TTFT.
+                        // Ignored once real tokens start streaming so we don't
+                        // clobber the answer.
+                        if (!cleared) {
+                            bot.body.innerHTML =
+                                `<span class="text-neutral-400 typing">${escapeHtml(data.text)}</span>`;
+                            scrollBottom();
+                        }
+                    } else if (data.type === 'token') {
+                        if (!cleared) { bot.body.innerHTML = ''; cleared = true; }
+                        botText += data.text;
+                        bot.body.textContent = botText;
+                        scrollBottom();
+                    } else if (data.type === 'title') {
+                        // Server-generated title arrived — update sidebar
+                        const conv = conversations.find(c => String(c.id) === String(data.conversation_id || currentConversationId));
+                        if (conv) {
+                            conv.title = data.title;
+                            conv.has_title = true;
+                            if (String(conv.id) === String(currentConversationId)) {
+                                chatTitleEl.textContent = data.title;
+                            }
+                            renderSidebar();
+                        }
+                    } else if (data.type === 'done') {
+                        if (data.confidence) {
+                            setConfidence(bot.confidence, data.confidence);
+                            bot.confidence.classList.remove('hidden');
+                        }
+                        if (data.source) {
+                            renderSource(bot, data.source, data.confidence);
+                        }
+                    } else if (data.type === 'error') {
+                        if (!cleared) { bot.body.innerHTML = ''; cleared = true; }
+                        bot.body.textContent = 'Error: ' + data.text;
+                        bot.body.classList.add('text-red-600');
+                    }
+                }
+            }
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                // conversation switched mid-stream — silently discard
+            } else {
+                if (!cleared) { bot.body.innerHTML = ''; cleared = true; }
+                bot.body.textContent = 'Something went wrong: ' + err.message;
+                bot.body.classList.add('text-red-600');
+            }
+        } finally {
+            isBusy = false;
+            sendBtn.disabled = false;
+            activeAbortController = null;
+            input.focus();
+        }
+    }
+
+    // ---------- Recording panel + waveform ----------
+    function showRecordingPanel() {
+        recordPanel.classList.remove('hidden');
+        form.classList.add('hidden');
+        chatFooterHint.classList.add('hidden');
+        resizeCanvas();
+    }
+
+    function hideRecordingPanel() {
+        recordPanel.classList.add('hidden');
+        form.classList.remove('hidden');
+        chatFooterHint.classList.remove('hidden');
+    }
+
+    function resizeCanvas() {
+        // Match backing store to CSS size for crisp rendering
+        const dpr = window.devicePixelRatio || 1;
+        const rect = waveCanvas.getBoundingClientRect();
+        waveCanvas.width = Math.floor(rect.width * dpr);
+        waveCanvas.height = Math.floor(rect.height * dpr);
+        const ctx = waveCanvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+    }
+
+    function startWaveform(stream) {
+        try {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const source = audioContext.createMediaStreamSource(stream);
+            audioAnalyser = audioContext.createAnalyser();
+            audioAnalyser.fftSize = 2048;                   // higher = smoother line
+            audioAnalyser.smoothingTimeConstant = 0.6;
+            source.connect(audioAnalyser);
+        } catch (err) {
+            console.warn('Waveform disabled — Web Audio unavailable:', err);
+            return;
+        }
+
+        const bufferLength = audioAnalyser.fftSize;
+        const dataArray = new Uint8Array(bufferLength);   // time-domain samples, 0-255 with 128 = silence
+        const ctx = waveCanvas.getContext('2d');
+
+        const draw = () => {
+            waveAnimationId = requestAnimationFrame(draw);
+            audioAnalyser.getByteTimeDomainData(dataArray);
+
+            const rect = waveCanvas.getBoundingClientRect();
+            const w = rect.width;
+            const h = rect.height;
+            ctx.clearRect(0, 0, w, h);
+
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#e11d48';                  // rose-600
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+
+            const sliceWidth = w / bufferLength;
+            let x = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                const v = (dataArray[i] - 128) / 128;     // -1 .. 1, 0 = silence
+                const y = h / 2 + v * (h / 2) * 0.9;      // 0.9 = tiny margin so peaks don't clip
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+                x += sliceWidth;
+            }
+            ctx.stroke();
+        };
+        draw();
+    }
+
+    function stopWaveform() {
+        if (waveAnimationId) {
+            cancelAnimationFrame(waveAnimationId);
+            waveAnimationId = null;
+        }
+        if (audioContext) {
+            audioContext.close().catch(() => {});
+            audioContext = null;
+        }
+        audioAnalyser = null;
+        // Clear the canvas
+        const ctx = waveCanvas.getContext('2d');
+        const rect = waveCanvas.getBoundingClientRect();
+        ctx.clearRect(0, 0, rect.width, rect.height);
+    }
+
+    function startTimer() {
+        recordStartTime = Date.now();
+        const update = () => {
+            const elapsed = Math.floor((Date.now() - recordStartTime) / 1000);
+            const min = Math.floor(elapsed / 60);
+            const sec = elapsed % 60;
+            recordTimer.textContent = `${min}:${sec.toString().padStart(2, '0')}`;
+        };
+        update();
+        timerIntervalId = setInterval(update, 1000);
+    }
+
+    function stopTimer() {
+        if (timerIntervalId) {
+            clearInterval(timerIntervalId);
+            timerIntervalId = null;
+        }
+        recordTimer.textContent = '0:00';
+    }
+
+    // ---------- Voice recording ----------
+    function setMicStatus(text, tone = 'neutral') {
+        if (!text) {
+            micStatus.classList.add('hidden');
+            micStatus.textContent = '';
+            chatFooterHint.classList.remove('hidden');
+            return;
+        }
+        micStatus.classList.remove('hidden');
+        chatFooterHint.classList.add('hidden');
+        const toneCls = tone === 'error'
+            ? 'text-rose-500'
+            : tone === 'recording'
+                ? 'text-rose-600'
+                : 'text-neutral-500';
+        micStatus.className = 'text-xs mt-2 text-center ' + toneCls;
+        micStatus.textContent = text;
+    }
+
+    function setMicIconRecording(recording) {
+        micBtn.classList.toggle('bg-rose-100', recording);
+        micBtn.classList.toggle('text-rose-600', recording);
+        micBtn.classList.toggle('animate-pulse', recording);
+    }
+
+    async function startRecording() {
+        if (isRecording || isTranscribing) return;
+        if (!navigator.mediaDevices || !window.MediaRecorder) {
+            setMicStatus('Voice input not supported in this browser', 'error');
+            return;
+        }
+        try {
+            mediaStream = await navigator.mediaDevices.getUserMedia({
+                audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true },
+            });
+        } catch (err) {
+            setMicStatus('Microphone permission denied', 'error');
+            return;
+        }
+
+        // Pick the best mime type the browser supports
+        const preferred = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+        const mimeType = preferred.find(t => MediaRecorder.isTypeSupported(t)) || '';
+
+        audioChunks = [];
+        try {
+            mediaRecorder = mimeType
+                ? new MediaRecorder(mediaStream, { mimeType })
+                : new MediaRecorder(mediaStream);
+        } catch (err) {
+            setMicStatus('Could not start recorder: ' + err.message, 'error');
+            cleanupStream();
+            return;
+        }
+
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) audioChunks.push(e.data);
+        };
+        mediaRecorder.onstop = handleRecordingStop;
+
+        mediaRecorder.start();
+        isRecording = true;
+        setMicIconRecording(true);
+        setMicStatus('');  // clear — the recording panel is the visible cue now
+
+        // Show the visible recording UI
+        showRecordingPanel();
+        startWaveform(mediaStream);
+        startTimer();
+    }
+
+    function stopRecording() {
+        if (!isRecording || !mediaRecorder) return;
+        try { mediaRecorder.stop(); } catch (err) { /* noop */ }
+        isRecording = false;
+        setMicIconRecording(false);
+        stopWaveform();
+        stopTimer();
+        hideRecordingPanel();
+    }
+
+    function cleanupStream() {
+        if (mediaStream) {
+            mediaStream.getTracks().forEach(t => t.stop());
+            mediaStream = null;
+        }
+        mediaRecorder = null;
+    }
+
+    async function handleRecordingStop() {
+        const blob = new Blob(audioChunks, { type: mediaRecorder && mediaRecorder.mimeType ? mediaRecorder.mimeType : 'audio/webm' });
+        cleanupStream();
+
+        if (blob.size < 1000) {
+            setMicStatus('Recording was too short', 'error');
+            setTimeout(() => setMicStatus(''), 2500);
+            return;
+        }
+
+        isTranscribing = true;
+        setMicStatus('Transcribing… (first run downloads model, may take a minute)');
+        micBtn.disabled = true;
+
+        const extension = (blob.type.split(';')[0].split('/')[1]) || 'webm';
+        const form = new FormData();
+        form.append('audio', blob, `recording.${extension}`);
+
+        try {
+            const resp = await fetch('/api/transcribe/', { method: 'POST', body: form });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+
+            const transcript = (data.text || '').trim();
+            if (!transcript) {
+                setMicStatus('No speech detected', 'error');
+                setTimeout(() => setMicStatus(''), 2500);
+            } else {
+                // Append to any existing typed text with a space separator
+                const existing = input.value.trim();
+                input.value = existing ? `${existing} ${transcript}` : transcript;
+                autoResize();
+                input.focus();
+                // Move cursor to the end
+                input.setSelectionRange(input.value.length, input.value.length);
+                setMicStatus(`Transcribed (${data.duration_s}s audio)`);
+                setTimeout(() => setMicStatus(''), 2500);
+            }
+        } catch (err) {
+            setMicStatus('Transcription failed: ' + err.message, 'error');
+            setTimeout(() => setMicStatus(''), 4000);
+        } finally {
+            isTranscribing = false;
+            micBtn.disabled = false;
+        }
+    }
+
+    // ---------- Event listeners ----------
+    micBtn.addEventListener('click', () => {
+        if (isRecording) {
+            stopRecording();
+        } else {
+            startRecording();
+        }
+    });
+
+    stopRecordBtn.addEventListener('click', () => {
+        if (isRecording) stopRecording();
+    });
+
+    window.addEventListener('resize', () => {
+        if (isRecording) resizeCanvas();
+    });
+
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        sendMessage(input.value);
+    });
+
+    input.addEventListener('input', autoResize);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage(input.value);
+        }
+    });
+
+    newChatBtn.addEventListener('click', () => {
+        if (isBusy && activeAbortController) activeAbortController.abort();
+        currentConversationId = null;
+        sessionStorage.removeItem('currentConversationId');
+        clearUpload();                // uploaded doc is per-session; drop it on new chat
+        showEmptyState();
+        renderSidebar();
+        input.focus();
+    });
+
+    // Delegation — catches both the initial-render suggestions and any
+    // rebuilt via showEmptyState() after "New Chat".
+    messages.addEventListener('click', (e) => {
+        const btn = e.target.closest('.suggestion');
+        if (btn) sendMessage(btn.textContent.trim());
+    });
+
+    if (toggleSidebarBtn) {
+        toggleSidebarBtn.addEventListener('click', () => sidebar.classList.toggle('hidden'));
+    }
+
+    // ---------- Init ----------
+    (async function init() {
+        // Fire chip refresh + convo load in parallel — chip is independent.
+        await Promise.all([loadConversations(), refreshUploadChip()]);
+        if (currentConversationId) {
+            const exists = conversations.some(c => String(c.id) === String(currentConversationId));
+            if (exists) {
+                openConversation(currentConversationId);
+            } else {
+                currentConversationId = null;
+                sessionStorage.removeItem('currentConversationId');
+                showEmptyState();
+            }
+        }
+        input.focus();
+    })();
+})();
+</script>
+{% endblock %}
