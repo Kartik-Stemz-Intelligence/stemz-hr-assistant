@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -19,10 +20,23 @@ def _chunks_and_embeddings(md_path):
 
 
 def _persist(chunks, embeddings_matrix):
+    """Write chunks + embeddings atomically so a crash mid-write can't leave the
+    two stores out of sync. Each file is written to a temp path then renamed.
+    """
+
     chunks_path = settings.DATA_DIR / 'chunks.json'
     emb_path = settings.DATA_DIR / 'embeddings.npy'
-    chunks_path.write_text(json.dumps(chunks, indent=2, ensure_ascii=False), encoding='utf-8')
-    np.save(emb_path, embeddings_matrix)
+
+    tmp_chunks = chunks_path.with_name(chunks_path.name + '.tmp')
+    tmp_emb = emb_path.with_name(emb_path.name + '.tmp')
+
+    tmp_chunks.write_text(json.dumps(chunks, indent=2, ensure_ascii=False), encoding='utf-8')
+    # Pass a file handle so np.save doesn't append its own .npy to the temp name.
+    with open(tmp_emb, 'wb') as f:
+        np.save(f, embeddings_matrix)
+
+    os.replace(tmp_chunks, chunks_path)
+    os.replace(tmp_emb, emb_path)
 
 
 def ingest_document(md_path):

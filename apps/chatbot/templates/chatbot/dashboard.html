@@ -4,7 +4,35 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Stemz HR — Policy Dashboard</title>
+    <link rel="icon" type="image/png" href="{% static 'stemz-logo.png' %}">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Stemz Healthcare brand palette — maroon wordmark + green tree/tagline.
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            DEFAULT: '#7a1b38',
+                            50:  '#f9e9ee',
+                            100: '#f0cdd8',
+                            200: '#e2a3b7',
+                            600: '#7a1b38',
+                            700: '#66152f',
+                            800: '#4f1025',
+                        },
+                        leaf: {
+                            DEFAULT: '#5fa524',
+                            50:  '#eef7e4',
+                            100: '#d8edc0',
+                            600: '#4f8a1e',
+                            700: '#3f6f18',
+                        },
+                    },
+                },
+            },
+        };
+    </script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
         .badge-active { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
@@ -19,25 +47,30 @@
 
     <!-- Header -->
     <header class="flex items-start justify-between mb-8">
-        <div>
-            <h1 class="text-2xl font-semibold text-neutral-900">Policy Dashboard</h1>
-            <p class="text-sm text-neutral-500 mt-1">Every document the HR assistant is answering from — with authenticity metadata.</p>
+        <div class="flex items-center gap-3">
+            <div class="h-11 w-11 rounded-xl bg-white ring-1 ring-neutral-200 flex items-center justify-center shrink-0 overflow-hidden">
+                <img src="{% static 'chatbot/stemz-logo.png' %}" alt="Stemz Healthcare" class="h-9 w-auto object-contain">
+            </div>
+            <div>
+                <h1 class="text-2xl font-semibold text-neutral-900">Policy Dashboard</h1>
+                <p class="text-sm text-neutral-500 mt-1">Every document the HR assistant is answering from — with authenticity metadata.</p>
+            </div>
         </div>
-        <a href="/" class="text-sm text-neutral-600 hover:text-neutral-900 underline decoration-dotted">← Back to chat</a>
+        <a href="/" class="text-sm text-brand hover:text-brand-700 underline decoration-dotted">← Back to chat</a>
     </header>
 
     <!-- Summary -->
     <div class="grid grid-cols-3 gap-4 mb-8">
-        <div class="bg-white border border-neutral-200 rounded-lg p-4">
-            <div class="text-2xl font-semibold">{{ total_docs }}</div>
+        <div class="bg-white border border-neutral-200 border-t-2 border-t-brand rounded-lg p-4">
+            <div class="text-2xl font-semibold text-brand">{{ total_docs }}</div>
             <div class="text-xs text-neutral-500 uppercase tracking-wide mt-1">Documents</div>
         </div>
-        <div class="bg-white border border-neutral-200 rounded-lg p-4">
-            <div class="text-2xl font-semibold">{{ total_chunks }}</div>
+        <div class="bg-white border border-neutral-200 border-t-2 border-t-brand rounded-lg p-4">
+            <div class="text-2xl font-semibold text-brand">{{ total_chunks }}</div>
             <div class="text-xs text-neutral-500 uppercase tracking-wide mt-1">Sections indexed</div>
         </div>
-        <div class="bg-white border border-neutral-200 rounded-lg p-4">
-            <div class="text-2xl font-semibold">{{ categories|length }}</div>
+        <div class="bg-white border border-neutral-200 border-t-2 border-t-leaf rounded-lg p-4">
+            <div class="text-2xl font-semibold text-leaf-700">{{ categories|length }}</div>
             <div class="text-xs text-neutral-500 uppercase tracking-wide mt-1">Categories</div>
         </div>
     </div>

@@ -34,13 +34,22 @@ def extract_text(file_bytes: bytes, filename: str) -> str:
         raise DocumentError(
             f"Unsupported file type '{ext}'. Supported: {', '.join(SUPPORTED_EXTS)}"
         )
-
-    if ext == '.pdf':
-        text = _extract_pdf(file_bytes)
-    elif ext == '.docx':
-        text = _extract_docx(file_bytes)
-    else:  # .txt / .md
-        text = file_bytes.decode('utf-8', errors='replace')
+# A file renamed to a supported extension can still fail to parse. Convert
+    # any extractor exception into a user-facing DocumentError instead of a 500.
+    try:
+        if ext == '.pdf':
+            text = _extract_pdf(file_bytes)
+        elif ext == '.docx':
+            text = _extract_docx(file_bytes)
+        else:  # .txt | .md
+            text = file_bytes.decode('utf-8', errors='replace')
+    except DocumentError:
+        raise
+    except Exception:
+        raise DocumentError(
+            f"Could not read this file as {ext}. Please check it isn't corrupted "
+            "and matches its extension."
+        )
 
     text = text.strip()
     if not text:

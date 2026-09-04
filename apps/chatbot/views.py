@@ -1,21 +1,33 @@
 import base64
 import json
 import os
+import secrets
 import tempfile
+from datetime import timedelta
 from functools import wraps
 
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.hashers import check_password, make_password
+from django.contrib.auth.models import User
 from django.conf import settings
+from django.core.cache import cache
 from django.core.mail import send_mail
+from django.core.validators import validate_email
+from django.core.exceptions import ValidationError
 from django.http import StreamingHttpResponse, JsonResponse, HttpResponse
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import render, get_object_or_404, redirect
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils import timezone
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST, require_GET, require_http_methods
 
 from apps.rag.services.retrieve import retrieve
-from apps.rag.services.guardrail import should_refuse, REFUSAL_MESSAGE
+from apps.rag.services.guardrail import (
+    should_refuse, REFUSAL_MESSAGE,
+    is_confidential, confidential_hit, CONFIDENTIAL_REFUSAL_MESSAGE,
+)
 from apps.rag.services.generate import stream_answer, stream_answer_from_document
-from apps.chatbot.services.titler import generate_title
 from apps.chatbot.services.asr import transcribe as asr_transcribe
 from apps.chatbot.services.dashboard import load_documents
 from apps.chatbot.services.document import (
@@ -23,10 +35,46 @@ from apps.chatbot.services.document import (
     DocumentError, MAX_UPLOAD_BYTES, SUPPORTED_EXTS,
 )
 
+from .forms import (
+    EmployeeLoginForm,
+    EmployeeRegistrationRequestForm,
+    EmployeeRegistrationVerifyForm,
+    EmployeeRegistrationPasswordForm,
+)
 from .models import Conversation, Message, AskHRRequest
 
 
 UPLOAD_SESSION_KEY = 'uploaded_context'  # session key that holds the current doc
+
+MAX_QUERY_CHARS = 5000   # reject oversized chat messages before they hit the LLM
+REGISTRATION_SESSION_KEY = 'employee_registration_pending'
+REGISTRATION_CODE_TTL_MINUTES = 10
+REGISTRATION_MAX_VERIFY_ATTEMPTS = 5
+
+
+def _rate_limit(bucket, limit, window_s):
+    """Per-session sliding-window guard against endpoint abuse (spam, DoS).
+    Falls back to client IP when there's no session yet. Backed by the default
+    local-memory cache — good enough for a single-process deployment.
+    """
+    def decorator(view_func):
+        @wraps(view_func)
+        def wrapper(request, *args, **kwargs):
+            ident = _ensure_session(request) or request.META.get('REMOTE_ADDR', 'anon')
+            key = f'rl:{bucket}:{ident}'
+            if cache.get(key, 0) >= limit:
+                return JsonResponse(
+                    {'error': 'Too many requests. Please slow down and try again shortly.'},
+                    status=429,
+                )
+            cache.add(key, 0, timeout=window_s)
+            try:
+                cache.incr(key)
+            except ValueError:
+                cache.set(key, 1, timeout=window_s)
+            return view_func(request, *args, **kwargs)
+        return wrapper
+    return decorator
 
 
 def _basic_auth_required(view_func):
@@ -50,6 +98,97 @@ def _basic_auth_required(view_func):
     return wrapper
 
 
+def _json_login_required(view_func):
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return JsonResponse({'error': 'Please log in with your employee account.'}, status=401)
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+
+def _safe_next_url(request, default='chat_page'):
+    next_url = request.POST.get('next') or request.GET.get('next')
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        return next_url
+    return default
+
+
+def _registration_session(request):
+    return request.session.get(REGISTRATION_SESSION_KEY)
+
+
+def _save_registration_session(request, payload):
+    request.session[REGISTRATION_SESSION_KEY] = payload
+    request.session.modified = True
+
+
+def _clear_registration_session(request):
+    if REGISTRATION_SESSION_KEY in request.session:
+        request.session.pop(REGISTRATION_SESSION_KEY, None)
+        request.session.modified = True
+
+
+def _send_registration_code_email(email, code):
+    subject = 'Stemz HR Assistant verification code'
+    message = (
+        'Use the following verification code to create your Stemz HR Assistant account.\n\n'
+        f'Code: {code}\n\n'
+        f'This code expires in {REGISTRATION_CODE_TTL_MINUTES} minutes.\n\n'
+        'If you did not request this, you can ignore this email.'
+    )
+    send_mail(
+        subject=subject,
+        message=message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[email],
+        fail_silently=False,
+    )
+
+
+def _start_registration(request, full_name, email):
+    code = f'{secrets.randbelow(1000000):06d}'
+    expires_at = timezone.now() + timedelta(minutes=REGISTRATION_CODE_TTL_MINUTES)
+    payload = {
+        'full_name': full_name,
+        'email': email,
+        'code_hash': make_password(code),
+        'expires_at': expires_at.isoformat(),
+        'attempts': 0,
+        'verified': False,
+    }
+    _save_registration_session(request, payload)
+    _send_registration_code_email(email, code)
+
+
+def _is_registration_expired(payload):
+    expires_at = payload.get('expires_at')
+    if not expires_at:
+        return True
+    try:
+        return timezone.now() > timezone.datetime.fromisoformat(expires_at)
+    except ValueError:
+        return True
+
+
+def _create_user_from_pending(payload, password):
+    email = (payload.get('email') or '').strip().lower()
+    full_name = (payload.get('full_name') or '').strip()
+    user = User(username=email, email=email)
+    if full_name:
+        name_parts = full_name.split(None, 1)
+        user.first_name = name_parts[0]
+        if len(name_parts) > 1:
+            user.last_name = name_parts[1]
+    user.set_password(password)
+    user.save()
+    return user
+
+
 def _sse(payload):
     return f"data: {json.dumps(payload)}\n\n"
 
@@ -70,7 +209,7 @@ def _message_confidence(m):
     """
     if m.role != 'assistant':
         return None
-    if m.content == REFUSAL_MESSAGE:
+    if m.content in (REFUSAL_MESSAGE, CONFIDENTIAL_REFUSAL_MESSAGE):
         return 'refused'
     if m.top_score is None:
         return None
@@ -87,11 +226,13 @@ def _short_model_name(model_id):
 
 
 def _pick_model(top_score):
-    """Three-tier model picker driven by retrieval confidence:
-      - high  (>= 0.7): Haiku 4.5 — retrieval already nailed it, LLM just formats
-      - low   (<  0.3): Opus 4.8  — weak evidence, needs deeper reasoning
-      - other:          Sonnet 5  — balanced default
-    """
+    """Speed-first model picker with optional low-confidence escalation."""
+    if settings.FORCE_FAST_MODEL:
+        return settings.CLAUDE_MODEL_FAST
+    if settings.SPEED_FIRST_MODE:
+        if top_score < settings.ESCALATION_SCORE_THRESHOLD:
+            return settings.CLAUDE_MODEL_ESCALATION
+        return settings.CLAUDE_MODEL_FAST
     if top_score < settings.ESCALATION_SCORE_THRESHOLD:
         return settings.CLAUDE_MODEL_ESCALATION
     if top_score >= settings.FAST_SCORE_THRESHOLD:
@@ -119,6 +260,49 @@ def _source_info(chunk):
     }
 
 
+def _trim_prior_llm_messages(messages):
+    """Keep only a small recent context window for faster generation."""
+    if not messages:
+        return []
+    max_messages = max(0, settings.MAX_HISTORY_MESSAGES)
+    max_chars = max(1, settings.MAX_HISTORY_CHARS)
+    window = messages[-max_messages:] if max_messages else []
+    trimmed = []
+    for msg in window:
+        content = (msg.get('content') or '').strip()
+        if not content:
+            continue
+        if len(content) > max_chars:
+            content = content[:max_chars].rstrip() + '…'
+        trimmed.append({'role': msg.get('role', 'user'), 'content': content})
+    return trimmed
+
+
+def _fallback_answer_from_retrieved(retrieved):
+    """Return a short local fallback answer when the LLM is slow/unavailable."""
+    if not retrieved:
+        return REFUSAL_MESSAGE
+    top_chunk = (retrieved[0] or {}).get('chunk') or {}
+    section = top_chunk.get('title') or 'policy section'
+    doc = top_chunk.get('doc_title') or top_chunk.get('document') or 'policy document'
+    text = (top_chunk.get('text') or '').strip().replace('\n', ' ')
+    if len(text) > 360:
+        text = text[:360].rstrip() + '…'
+    if not text:
+        return f"I found guidance in {section} ({doc}), but the full response is delayed. Please try again or contact HR for immediate help."
+    return f"Quick policy note from {section} ({doc}): {text}"
+
+
+def _fallback_answer_from_document(filename, document_text):
+    """Return a short local fallback answer for uploaded-document mode."""
+    excerpt = (document_text or '').strip().replace('\n', ' ')
+    if len(excerpt) > 360:
+        excerpt = excerpt[:360].rstrip() + '…'
+    if not excerpt:
+        return f"I could not generate a full answer from {filename} in time. Please try again."
+    return f"Quick note from {filename}: {excerpt}"
+
+
 def _conversation_summary(conv, snippet_len=80):
     last_msg = conv.messages.order_by('-created_at').first()
     snippet = ''
@@ -144,14 +328,148 @@ def _ensure_session(request):
 
 
 def _owned_conversations(request):
+    if request.user.is_authenticated:
+        return Conversation.objects.filter(
+            user_id=str(request.user.pk),
+            is_archived=False,
+        )
     return Conversation.objects.filter(
         session_key=_ensure_session(request),
         is_archived=False,
     )
 
 
+def _conversation_owner_kwargs(request):
+    kwargs = {'session_key': _ensure_session(request)}
+    if request.user.is_authenticated:
+        kwargs['user_id'] = str(request.user.pk)
+    return kwargs
+
+
 # ---------------------------------------------------------------- Chat page
 
+def login_view(request):
+    if request.user.is_authenticated:
+        return redirect('chat_page')
+
+    form = EmployeeLoginForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        user = authenticate(
+            request,
+            username=form.cleaned_data['email'],
+            password=form.cleaned_data['password'],
+        )
+        if user is None:
+            form.add_error(None, 'Invalid email or password.')
+        else:
+            login(request, user)
+            return redirect(_safe_next_url(request))
+
+    return render(request, 'chatbot/login.html', {'form': form})
+
+
+def register_view(request):
+    if request.user.is_authenticated:
+        return redirect('chat_page')
+
+    form = EmployeeRegistrationRequestForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        full_name = (form.cleaned_data.get('full_name') or '').strip()
+        email = form.cleaned_data['email']
+        _start_registration(request, full_name, email)
+        return redirect('register_verify')
+
+    return render(request, 'chatbot/register.html', {'form': form})
+
+
+def register_verify_view(request):
+    if request.user.is_authenticated:
+        return redirect('chat_page')
+
+    pending = _registration_session(request)
+    if not pending:
+        return redirect('register')
+
+    if _is_registration_expired(pending):
+        _clear_registration_session(request)
+        return render(request, 'chatbot/register_verify.html', {
+            'form': EmployeeRegistrationVerifyForm(),
+            'email': '',
+            'expired': True,
+        })
+
+    form = EmployeeRegistrationVerifyForm(request.POST or None)
+    if request.method == 'POST':
+        action = (request.POST.get('action') or 'verify').strip().lower()
+        if action == 'resend':
+            _start_registration(request, pending.get('full_name', ''), pending.get('email', ''))
+            return render(request, 'chatbot/register_verify.html', {
+                'form': EmployeeRegistrationVerifyForm(),
+                'email': pending.get('email', ''),
+                'resent': True,
+                'expired': False,
+            })
+
+        if form.is_valid():
+            if pending.get('attempts', 0) >= REGISTRATION_MAX_VERIFY_ATTEMPTS:
+                form.add_error('code', 'Too many invalid attempts. Request a new code.')
+            elif check_password(form.cleaned_data['code'], pending.get('code_hash', '')):
+                pending['verified'] = True
+                pending['code_hash'] = ''
+                _save_registration_session(request, pending)
+                return redirect('register_password')
+            else:
+                pending['attempts'] = int(pending.get('attempts', 0)) + 1
+                _save_registration_session(request, pending)
+                remaining = max(0, REGISTRATION_MAX_VERIFY_ATTEMPTS - pending['attempts'])
+                form.add_error('code', f'Invalid code. {remaining} attempt(s) left.')
+
+    return render(request, 'chatbot/register_verify.html', {
+        'form': form,
+        'email': pending.get('email', ''),
+        'expired': False,
+    })
+
+
+def register_password_view(request):
+    if request.user.is_authenticated:
+        return redirect('chat_page')
+
+    pending = _registration_session(request)
+    if not pending or not pending.get('verified'):
+        return redirect('register')
+
+    email = (pending.get('email') or '').strip().lower()
+    if not email:
+        _clear_registration_session(request)
+        return redirect('register')
+
+    if User.objects.filter(username__iexact=email).exists():
+        _clear_registration_session(request)
+        return redirect('login')
+
+    form = EmployeeRegistrationPasswordForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        user = _create_user_from_pending(pending, form.cleaned_data['password1'])
+        _clear_registration_session(request)
+        login(request, user)
+        return redirect(_safe_next_url(request))
+
+    return render(request, 'chatbot/register_password.html', {
+        'form': form,
+        'email': email,
+    })
+
+
+@login_required(login_url='login')
+@require_POST
+def logout_view(request):
+    logout(request)
+    return redirect('login')
+
+
+@login_required(login_url='login')
+@ensure_csrf_cookie
 def chat_page(request):
     _ensure_session(request)
     return render(request, 'chatbot/chat.html')
@@ -170,7 +488,7 @@ def dashboard(request):
 
 # ---------------------------------------------------------------- Conversations API
 
-@csrf_exempt
+@_json_login_required
 @require_http_methods(['GET', 'POST'])
 def conversations_list(request):
     if request.method == 'GET':
@@ -180,11 +498,11 @@ def conversations_list(request):
         })
 
     # POST — create a new empty conversation
-    conv = Conversation.objects.create(session_key=_ensure_session(request))
+    conv = Conversation.objects.create(**_conversation_owner_kwargs(request))
     return JsonResponse(_conversation_summary(conv), status=201)
 
 
-@csrf_exempt
+@_json_login_required
 @require_http_methods(['GET', 'PATCH', 'DELETE'])
 def conversation_detail(request, pk):
     conv = _owned_conversations(request).filter(pk=pk).first()
@@ -236,8 +554,9 @@ def conversation_detail(request, pk):
 
 # ---------------------------------------------------------------- Chat stream
 
-@csrf_exempt
+@_json_login_required
 @require_POST
+@_rate_limit('chat', limit=30, window_s=60)
 def chat_stream(request):
     try:
         body = json.loads(request.body)
@@ -247,6 +566,11 @@ def chat_stream(request):
     query = (body.get('message') or '').strip()
     if not query:
         return JsonResponse({'error': 'Empty message'}, status=400)
+    if len(query) > MAX_QUERY_CHARS:
+        return JsonResponse(
+            {'error': f'Message too long. Maximum is {MAX_QUERY_CHARS} characters.'},
+            status=400,
+        )
 
     session_key = _ensure_session(request)
 
@@ -254,12 +578,14 @@ def chat_stream(request):
     conversation_id = body.get('conversation_id')
     if conversation_id:
         conversation = Conversation.objects.filter(
-            pk=conversation_id, session_key=session_key, is_archived=False,
+            pk=conversation_id,
+            is_archived=False,
+            **({'user_id': str(request.user.pk)} if request.user.is_authenticated else {'session_key': session_key}),
         ).first()
         if not conversation:
             return JsonResponse({'error': 'Conversation not found'}, status=404)
     else:
-        conversation = Conversation.objects.create(session_key=session_key)
+        conversation = Conversation.objects.create(**_conversation_owner_kwargs(request))
 
     is_first_exchange = not conversation.messages.exists()
     prior_messages = list(conversation.messages.order_by('created_at')) if not is_first_exchange else []
@@ -270,6 +596,7 @@ def chat_stream(request):
         {'role': m.role, 'content': m.content}
         for m in prior_messages
     ]
+    prior_llm_messages = _trim_prior_llm_messages(prior_llm_messages)
 
     # Uploaded document mode — if the session holds a doc, bypass RAG entirely
     # and pass the doc directly to Claude. Different system prompt, different
@@ -327,6 +654,28 @@ def chat_stream(request):
             'confidence': confidence,
             'model': selected_model,
         })
+        # Confidential-document guard: if any relevant retrieved chunk belongs
+        # to a document flagged `confidential: true`, never answer — redirect to
+        # HR. No LLM call, and confidential content never reaches the model.
+        # Checking the whole reranked set (not just the top hit) keeps this
+        # strict: a confidential document surfacing at all triggers a refusal.
+        if confidential_hit(retrieved):
+            yield _sse({'type': 'token', 'text': CONFIDENTIAL_REFUSAL_MESSAGE})
+            Message.objects.create(
+                conversation=conversation,
+                role='assistant',
+                content=CONFIDENTIAL_REFUSAL_MESSAGE,
+                citation='',
+                top_score=top_score,
+                retrieved_titles=retrieved_titles,
+            )
+            conversation.save()
+            _maybe_generate_title(conversation, is_first_exchange, query, CONFIDENTIAL_REFUSAL_MESSAGE)
+            yield _sse({'type': 'done', 'confidence': 'refused', 'escalate': True})
+            if is_first_exchange and conversation.title:
+                yield _sse({'type': 'title', 'title': conversation.title})
+            return
+
         # Status shown while we wait for Anthropic's TTFT (~1-2s).
         yield _sse({'type': 'status', 'text': f'Composing answer with {_short_model_name(selected_model)}…'})
 
@@ -343,19 +692,24 @@ def chat_stream(request):
             # Save conversation to bump updated_at
             conversation.save()
             _maybe_generate_title(conversation, is_first_exchange, query, REFUSAL_MESSAGE)
-            yield _sse({'type': 'done', 'confidence': 'refused'})
+            yield _sse({'type': 'done', 'confidence': 'refused', 'escalate': True})
             if is_first_exchange and conversation.title:
                 yield _sse({'type': 'title', 'title': conversation.title})
             return
+
+        # Defense in depth: never pass confidential-doc chunks to the LLM, even
+        # if a lower-ranked one slipped into the results.
+        retrieved = [r for r in retrieved if not is_confidential(r['chunk'])]
 
         buffer = []
         try:
             for token in stream_answer(query, retrieved, prior_messages=prior_llm_messages, model=selected_model):
                 buffer.append(token)
                 yield _sse({'type': 'token', 'text': token})
-        except Exception as exc:
-            yield _sse({'type': 'error', 'text': f'Generation error: {exc}'})
-            return
+        except Exception:
+            fallback = _fallback_answer_from_retrieved(retrieved)
+            yield _sse({'type': 'token', 'text': fallback})
+            buffer = [fallback]
 
         full_answer = ''.join(buffer)
         citation = ''
@@ -424,9 +778,10 @@ def _stream_document_answer(query, uploaded, conversation, is_first_exchange, pr
         ):
             buffer.append(token)
             yield _sse({'type': 'token', 'text': token})
-    except Exception as exc:
-        yield _sse({'type': 'error', 'text': f'Generation error: {exc}'})
-        return
+    except Exception:
+        fallback = _fallback_answer_from_document(filename, doc_text)
+        yield _sse({'type': 'token', 'text': fallback})
+        buffer = [fallback]
 
     full_answer = ''.join(buffer)
     citation = f'Answered from uploaded file: {filename}'
@@ -466,22 +821,23 @@ def _stream_document_answer(query, uploaded, conversation, is_first_exchange, pr
 
 
 def _maybe_generate_title(conversation, is_first_exchange, user_msg, bot_msg):
-    """Generate a title if this is the first exchange and no title exists yet."""
+    """Assign a cheap local title on first exchange to avoid extra LLM latency."""
     if not is_first_exchange or conversation.title:
         return
-    try:
-        title = generate_title(user_msg, bot_msg)
-        if title:
-            conversation.title = title
-            conversation.save(update_fields=['title', 'updated_at'])
-    except Exception:
-        pass  # never break the response over a failed title
+    title = ' '.join((user_msg or '').split())[:60].strip()
+    if len(user_msg or '') > 60:
+        title = f'{title}…'
+    if not title:
+        title = f'Conversation #{conversation.pk}'
+    conversation.title = title
+    conversation.save(update_fields=['title', 'updated_at'])
 
 
 # ---------------------------------------------------------------- Transcribe
 
-@csrf_exempt
+@_json_login_required
 @require_POST
+@_rate_limit('transcribe', limit=20, window_s=60)
 def transcribe_audio(request):
     """Transcribe uploaded audio via faster-whisper. Returns {text, raw, language, duration_s}."""
     audio = request.FILES.get('audio')
@@ -505,8 +861,8 @@ def transcribe_audio(request):
         tmp.close()
         result = asr_transcribe(tmp.name, language='en')
         return JsonResponse(result)
-    except Exception as exc:
-        return JsonResponse({'error': f'Transcription failed: {exc}'}, status=500)
+    except Exception:
+        return JsonResponse({'error': 'Transcription failed. Please try again.'}, status=500)
     finally:
         try:
             os.unlink(tmp.name)
@@ -516,8 +872,9 @@ def transcribe_audio(request):
 
 # ---------------------------------------------------------------- Upload
 
-@csrf_exempt
+@_json_login_required
 @require_http_methods(['GET', 'POST', 'DELETE'])
+@_rate_limit('upload', limit=20, window_s=60)
 def upload_document(request):
     """Manage the session's uploaded document.
 
@@ -647,8 +1004,9 @@ def _format_ask_hr_email(record):
     return '\n'.join(lines)
 
 
-@csrf_exempt
+@_json_login_required
 @require_POST
+@_rate_limit('ask_hr', limit=5, window_s=60)
 def ask_hr(request):
     """Escalate the current chat context to HR by email. Also persists to DB
     so nothing is lost if delivery fails.
@@ -658,13 +1016,22 @@ def ask_hr(request):
     except json.JSONDecodeError:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
-    name = (body.get('name') or '').strip()
-    email = (body.get('email') or '').strip()
+    if request.user.is_authenticated:
+        name = (request.user.get_full_name() or request.user.get_username() or request.user.email or '').strip()
+        email = (request.user.email or request.user.get_username() or '').strip()
+    else:
+        name = (body.get('name') or '').strip()
+        email = (body.get('email') or '').strip()
     note = (body.get('note') or '').strip()
     conversation_id = body.get('conversation_id')
 
     if not name or not email:
         return JsonResponse({'error': 'Name and email are required'}, status=400)
+    try:
+        validate_email(email)
+    except ValidationError:
+        return JsonResponse({'error': 'Please enter a valid email address'}, status=400)
+    name = name[:120]
 
     # Look up the conversation (session-owned) — optional but preferred.
     conversation = None
@@ -675,10 +1042,7 @@ def ask_hr(request):
     top_score = None
 
     if conversation_id:
-        session_key = _ensure_session(request)
-        conversation = Conversation.objects.filter(
-            pk=conversation_id, session_key=session_key,
-        ).first()
+        conversation = _owned_conversations(request).filter(pk=conversation_id).first()
 
     if conversation:
         msgs = list(conversation.messages.order_by('created_at'))
@@ -716,13 +1080,14 @@ def ask_hr(request):
 
     subject = f"[HR Bot Escalation] {name}: {question[:60]}"
     message = _format_ask_hr_email(record)
+    recipients = settings.ASK_HR_RECIPIENTS or [settings.EMAIL_TO_HR]
 
     try:
         send_mail(
             subject=subject,
             message=message,
             from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[settings.EMAIL_TO_HR],
+            recipient_list=recipients,
             reply_to=[email] if email else None,
             fail_silently=False,
         )
@@ -736,7 +1101,7 @@ def ask_hr(request):
                 subject=subject,
                 body=message,
                 from_email=settings.DEFAULT_FROM_EMAIL,
-                to=[settings.EMAIL_TO_HR],
+                to=recipients,
                 reply_to=[email] if email else None,
             )
             msg.send(fail_silently=False)

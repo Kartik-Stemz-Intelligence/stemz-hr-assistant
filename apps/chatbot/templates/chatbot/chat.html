@@ -1,4 +1,5 @@
 {% extends 'chatbot/base.html' %}
+{% load static %}
 
 {% block content %}
 <div class="flex h-screen">
@@ -7,7 +8,7 @@
     <aside id="sidebar" class="w-72 shrink-0 bg-neutral-100 border-r border-neutral-200 flex flex-col hidden md:flex">
         <div class="p-3 border-b border-neutral-200">
             <button id="newChatBtn"
-                class="w-full flex items-center justify-center gap-2 bg-neutral-900 text-white rounded-lg py-2 px-3 text-sm font-medium hover:bg-neutral-800 transition">
+                class="w-full flex items-center justify-center gap-2 bg-brand text-white rounded-lg py-2 px-3 text-sm font-medium hover:bg-brand-700 transition">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                 New chat
             </button>
@@ -26,27 +27,40 @@
                 <button id="toggleSidebar" class="md:hidden text-neutral-500 hover:text-neutral-900" aria-label="Toggle sidebar">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
                 </button>
-                <div class="w-9 h-9 rounded-lg bg-neutral-900 flex items-center justify-center text-white font-semibold text-sm shrink-0">S</div>
+                <div class="h-9 w-9 rounded-lg bg-white ring-1 ring-neutral-200 flex items-center justify-center shrink-0 overflow-hidden">
+                    <img src="{% static 'chatbot/stemz-logo.png' %}" alt="Stemz Healthcare" class="h-8 w-auto object-contain">
+                </div>
                 <div class="min-w-0">
                     <h1 id="chatTitle" class="text-sm font-semibold text-neutral-900 truncate">Stemz HR Assistant</h1>
-                    <p class="text-xs text-neutral-500">Grounded in company policy · v0.2</p>
+                    <p class="text-xs text-neutral-500">Grounded in company policy · <span class="text-leaf-700 font-medium">keeping you healthy</span></p>
                 </div>
+            </div>
+
+            <div class="flex items-center gap-3 shrink-0">
+                <div class="hidden sm:block text-right">
+                    <p class="text-[11px] uppercase tracking-[0.22em] text-neutral-400">Employee account</p>
+                    <p class="text-sm font-medium text-neutral-800 truncate max-w-52">{{ request.user.email }}</p>
+                </div>
+                <form method="post" action="{% url 'logout' %}">
+                    {% csrf_token %}
+                    <button type="submit" class="rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900 transition">Logout</button>
+                </form>
             </div>
         </header>
 
         <main id="messages" class="flex-1 overflow-y-auto px-6 py-8 space-y-6">
             <div id="emptyState" class="text-center max-w-md mx-auto mt-16">
-                <div class="w-12 h-12 rounded-2xl bg-neutral-900 mx-auto mb-4 flex items-center justify-center text-white font-semibold">S</div>
+                <img src="{% static 'chatbot/stemz-logo.png' %}" alt="Stemz Healthcare" class="h-16 w-auto mx-auto mb-5 object-contain">
                 <h2 class="text-lg font-semibold text-neutral-900 mb-2">How can I help?</h2>
-                <p class="text-sm text-neutral-500 mb-6">Ask me anything about Stemz HR policies. I answer only from current policy documents.</p>
+                <p class="text-sm text-neutral-500 mb-6">Ask me anything about Stemz HR policies. Access is limited to signed-in employees, and I answer only from current policy documents.</p>
                 <div class="grid grid-cols-1 gap-2 text-left">
-                    <button class="suggestion text-sm text-neutral-700 border border-neutral-200 rounded-lg px-4 py-2 hover:bg-neutral-100 transition text-left">
+                    <button class="suggestion text-sm text-neutral-700 border border-neutral-200 rounded-lg px-4 py-2 hover:bg-brand-50 hover:border-brand-100 transition text-left">
                         How many late arrivals are allowed per month?
                     </button>
-                    <button class="suggestion text-sm text-neutral-700 border border-neutral-200 rounded-lg px-4 py-2 hover:bg-neutral-100 transition text-left">
+                    <button class="suggestion text-sm text-neutral-700 border border-neutral-200 rounded-lg px-4 py-2 hover:bg-brand-50 hover:border-brand-100 transition text-left">
                         What does Stemz do?
                     </button>
-                    <button class="suggestion text-sm text-neutral-700 border border-neutral-200 rounded-lg px-4 py-2 hover:bg-neutral-100 transition text-left">
+                    <button class="suggestion text-sm text-neutral-700 border border-neutral-200 rounded-lg px-4 py-2 hover:bg-brand-50 hover:border-brand-100 transition text-left">
                         Am I eligible for variable pay if I resign?
                     </button>
                 </div>
@@ -81,12 +95,12 @@
             </div>
 
             <!-- Uploaded document chip — shown when a doc is loaded into session -->
-            <div id="uploadChip" class="hidden mb-2 inline-flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-1.5 text-xs">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
-                <span class="text-indigo-700 font-medium">Answering from:</span>
-                <span id="uploadChipName" class="text-indigo-900 truncate max-w-xs"></span>
-                <span id="uploadChipChars" class="text-indigo-500"></span>
-                <button type="button" id="uploadChipClear" title="Remove uploaded document" class="ml-1 text-indigo-400 hover:text-rose-600 text-base leading-none">&times;</button>
+            <div id="uploadChip" class="hidden mb-2 inline-flex items-center gap-2 bg-leaf-50 border border-leaf-100 rounded-lg px-3 py-1.5 text-xs">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4f8a1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                <span class="text-leaf-700 font-medium">Answering from:</span>
+                <span id="uploadChipName" class="text-neutral-900 truncate max-w-xs"></span>
+                <span id="uploadChipChars" class="text-leaf-600"></span>
+                <button type="button" id="uploadChipClear" title="Remove uploaded document" class="ml-1 text-leaf-600 hover:text-rose-600 text-base leading-none">&times;</button>
             </div>
 
             <!-- Hidden file picker triggered by paperclip -->
@@ -123,7 +137,7 @@
                 <button
                     type="submit"
                     id="sendBtn"
-                    class="bg-neutral-900 text-white rounded-xl px-5 py-3 text-sm font-medium hover:bg-neutral-800 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                    class="bg-brand text-white rounded-xl px-5 py-3 text-sm font-medium hover:bg-brand-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
                 >Send</button>
             </form>
             <div id="micStatus" class="hidden text-xs text-neutral-500 mt-2 text-center"></div>
@@ -147,13 +161,17 @@
             <div>
                 <label class="block text-xs font-medium text-neutral-700 mb-1">Your name</label>
                 <input type="text" id="askHrName" required
-                       class="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900" />
+                       value="{{ request.user.get_full_name|default:request.user.email }}"
+                       readonly
+                       class="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm bg-neutral-100 text-neutral-700 focus:outline-none focus:ring-2 focus:ring-brand" />
             </div>
             <div>
                 <label class="block text-xs font-medium text-neutral-700 mb-1">Your work email</label>
                 <input type="email" id="askHrEmail" required
-                       class="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900" />
-                <p class="text-[11px] text-neutral-400 mt-1">HR will reply here. We save your name + email in this browser only.</p>
+                       value="{{ request.user.email }}"
+                       readonly
+                       class="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm bg-neutral-100 text-neutral-700 focus:outline-none focus:ring-2 focus:ring-brand" />
+                <p class="text-[11px] text-neutral-400 mt-1">Pulled from your employee account so HR always sees the right identity.</p>
             </div>
             <div class="bg-neutral-50 border border-neutral-200 rounded-lg p-3">
                 <div class="text-[11px] text-neutral-500 uppercase tracking-wider font-medium mb-1">Your question</div>
@@ -166,7 +184,7 @@
             <div>
                 <label class="block text-xs font-medium text-neutral-700 mb-1">Your concern or doubt <span class="text-neutral-400 font-normal">(optional)</span></label>
                 <textarea id="askHrNote" rows="3"
-                          class="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900 resize-none"
+                          class="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand resize-none"
                           placeholder="e.g. 'The answer doesn't cover my case because…' or 'I need clarification on…'"></textarea>
             </div>
             <div id="askHrStatus" class="hidden text-xs text-center"></div>
@@ -174,7 +192,7 @@
                 <button type="button" id="askHrCancel"
                         class="px-4 py-2 text-sm text-neutral-600 hover:text-neutral-900">Cancel</button>
                 <button type="submit" id="askHrSubmit"
-                        class="bg-neutral-900 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-neutral-800 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                        class="bg-brand text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-brand-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
                     Send to HR
                 </button>
             </div>
@@ -211,6 +229,8 @@
     const askHrAnswer = document.getElementById('askHrAnswer');
     const askHrAnswerBox = document.getElementById('askHrAnswerBox');
     const askHrStatus = document.getElementById('askHrStatus');
+    const authUserName = "{{ request.user.get_full_name|default:request.user.email|escapejs }}";
+    const authUserEmail = "{{ request.user.email|escapejs }}";
     const micStatus = document.getElementById('micStatus');
     const chatFooterHint = document.getElementById('chatFooterHint');
     const recordPanel = document.getElementById('recordPanel');
@@ -258,6 +278,17 @@
         const div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;
+    }
+
+    // ---------- CSRF ----------
+    // The chat page sets a `csrftoken` cookie (ensure_csrf_cookie). Every
+    // state-changing request must echo it back in the X-CSRFToken header.
+    function getCookie(name) {
+        const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+        return m ? decodeURIComponent(m.pop()) : '';
+    }
+    function csrfHeaders(extra) {
+        return Object.assign({ 'X-CSRFToken': getCookie('csrftoken') }, extra || {});
     }
 
     // "2026-05-04" -> "4 May 2026". Any unparseable value passes through.
@@ -382,10 +413,10 @@
         wrap.id = 'emptyState';
         wrap.className = 'text-center max-w-md mx-auto mt-16';
         const suggestionsHtml = STARTER_SUGGESTIONS
-            .map(s => `<button type="button" class="suggestion text-sm text-neutral-700 border border-neutral-200 rounded-lg px-4 py-2 hover:bg-neutral-100 transition text-left">${escapeHtml(s)}</button>`)
+            .map(s => `<button type="button" class="suggestion text-sm text-neutral-700 border border-neutral-200 rounded-lg px-4 py-2 hover:bg-brand-50 hover:border-brand-100 transition text-left">${escapeHtml(s)}</button>`)
             .join('');
         wrap.innerHTML = `
-            <div class="w-12 h-12 rounded-2xl bg-neutral-900 mx-auto mb-4 flex items-center justify-center text-white font-semibold">S</div>
+            <img src="{% static 'chatbot/stemz-logo.png' %}" alt="Stemz Healthcare" class="h-16 w-auto mx-auto mb-5 object-contain">
             <h2 class="text-lg font-semibold text-neutral-900 mb-2">How can I help?</h2>
             <p class="text-sm text-neutral-500 mb-6">Ask me anything about Stemz HR policies. I answer only from current policy documents.</p>
             <div class="grid grid-cols-1 gap-2 text-left">${suggestionsHtml}</div>
@@ -447,7 +478,7 @@
     function convItem(c) {
         const isActive = String(c.id) === String(currentConversationId);
         const wrap = document.createElement('div');
-        wrap.className = `group relative rounded-lg text-sm cursor-pointer transition ${isActive ? 'bg-neutral-900 text-white' : 'text-neutral-700 hover:bg-neutral-200'}`;
+        wrap.className = `group relative rounded-lg text-sm cursor-pointer transition ${isActive ? 'bg-brand text-white' : 'text-neutral-700 hover:bg-neutral-200'}`;
         wrap.dataset.convId = c.id;
 
         const titleBtn = document.createElement('button');
@@ -458,7 +489,7 @@
 
         // Hover menu
         const menuBtn = document.createElement('button');
-        menuBtn.className = `absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus:opacity-100 p-1.5 rounded ${isActive ? 'hover:bg-neutral-700' : 'hover:bg-neutral-300'}`;
+        menuBtn.className = `absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus:opacity-100 p-1.5 rounded ${isActive ? 'hover:bg-brand-700' : 'hover:bg-neutral-300'}`;
         menuBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>`;
         menuBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMenu(c.id, menuBtn); });
         wrap.appendChild(menuBtn);
@@ -525,7 +556,7 @@
             try {
                 const resp = await fetch(`/api/conversations/${convId}/`, {
                     method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: csrfHeaders({ 'Content-Type': 'application/json' }),
                     body: JSON.stringify({ title: newTitle }),
                 });
                 if (!resp.ok) throw new Error('Rename failed');
@@ -551,7 +582,7 @@
     async function deleteConversation(convId) {
         if (!confirm('Delete this conversation? This cannot be undone.')) return;
         try {
-            const resp = await fetch(`/api/conversations/${convId}/`, { method: 'DELETE' });
+            const resp = await fetch(`/api/conversations/${convId}/`, { method: 'DELETE', headers: csrfHeaders() });
             if (!resp.ok && resp.status !== 204) throw new Error('Delete failed');
             conversations = conversations.filter(c => String(c.id) !== String(convId));
             if (String(currentConversationId) === String(convId)) {
@@ -610,6 +641,11 @@
                         setConfidence(bot.confidence, tier);
                         bot.confidence.classList.remove('hidden');
                     }
+                    // Reloaded refusals (no source card) still need an escalate
+                    // button so past confidential/low-confidence replies stay actionable.
+                    if (tier === 'refused' && !(m.source && m.source.doc_title)) {
+                        showEscalateButton(bot);
+                    }
                 }
             });
             renderSidebar();  // re-render to highlight active
@@ -635,7 +671,7 @@
         wrap.className = 'flex flex-col items-end';
         wrap.dataset.role = 'user';               // durable marker for findUserQuestionForBot
         wrap.dataset.messageText = text;          // exact text without timestamp noise
-        wrap.innerHTML = `<div class="msg-bubble max-w-[80%] bg-neutral-900 text-white rounded-2xl rounded-br-md px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap">${escapeHtml(text)}</div>`;
+        wrap.innerHTML = `<div class="msg-bubble max-w-[80%] bg-brand text-white rounded-2xl rounded-br-md px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap">${escapeHtml(text)}</div>`;
         wrap.appendChild(timestampEl(date, true));
         messages.appendChild(wrap);
         scrollBottom();
@@ -673,6 +709,10 @@
                 </div>
                 <div class="excerpt hidden mt-2 pt-2 border-t border-neutral-200 text-neutral-700 whitespace-pre-wrap font-mono text-[11px] leading-relaxed max-h-64 overflow-y-auto"></div>
             </div>
+            <button type="button" class="escalate-btn hidden ml-1 mt-1 self-start inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg px-3 py-1.5 text-xs font-medium transition">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                Email HR about this
+            </button>
             <details class="debug hidden ml-1 text-xs text-neutral-400 cursor-pointer w-full">
                 <summary class="hover:text-neutral-600">Retrieval debug</summary>
                 <div class="debug-content mt-1 font-mono"></div>
@@ -692,6 +732,7 @@
             excerpt: wrap.querySelector('.excerpt'),
             debug: wrap.querySelector('.debug'),
             debugContent: wrap.querySelector('.debug-content'),
+            escalateBtn: wrap.querySelector('.escalate-btn'),
         };
     }
 
@@ -713,7 +754,7 @@
         // Uploaded-document mode — completely different look. The doc is
         // the user's own file, so "Ask HR" makes no sense here.
         if (source.is_uploaded || source.status === 'uploaded') {
-            bot.sourceCard.className = `${cardBase} bg-indigo-50 border-indigo-200`;
+            bot.sourceCard.className = `${cardBase} bg-leaf-50 border-leaf-100`;
             bot.srcMeta.textContent = 'Answered from your uploaded document (not from company policies)';
             bot.askHrBtn.classList.add('hidden');
             bot.sourceCard.classList.remove('hidden');
@@ -806,7 +847,7 @@
         const fd = new FormData();
         fd.append('file', file);
         try {
-            const resp = await fetch('/api/upload/', { method: 'POST', body: fd });
+            const resp = await fetch('/api/upload/', { method: 'POST', headers: csrfHeaders(), body: fd });
             const data = await resp.json();
             if (!resp.ok || !data.ok) {
                 hideUploadChip();
@@ -822,7 +863,7 @@
 
     async function clearUpload() {
         try {
-            await fetch('/api/upload/', { method: 'DELETE' });
+            await fetch('/api/upload/', { method: 'DELETE', headers: csrfHeaders() });
         } catch (e) { /* ignore — chip hides regardless */ }
         hideUploadChip();
     }
@@ -837,6 +878,15 @@
 
     // ---------- Ask HR modal ----------
     let askHrContext = null;  // { question, bot_answer } captured when modal opens
+
+    // Show the standalone "Email HR about this" button under a refusal bubble.
+    // Refusals carry no source card (that's where the inline Ask HR link lives),
+    // so this is the only escalation affordance the user gets on those replies.
+    function showEscalateButton(bot) {
+        if (!bot.escalateBtn) return;
+        bot.escalateBtn.classList.remove('hidden');
+        bot.escalateBtn.onclick = () => openAskHr(bot);
+    }
 
     function findUserQuestionForBot(bot) {
         // Walk backwards through siblings looking for the nearest user
@@ -855,12 +905,9 @@
     }
 
     function openAskHr(bot) {
-        // Restore saved identity so returning users don't re-type name/email.
-        try {
-            const saved = JSON.parse(localStorage.getItem('askhr_identity') || '{}');
-            if (saved.name)  askHrName.value = saved.name;
-            if (saved.email) askHrEmail.value = saved.email;
-        } catch (e) { /* ignore */ }
+        // Always use the currently authenticated account identity.
+        askHrName.value = authUserName;
+        askHrEmail.value = authUserEmail;
 
         askHrNote.value = '';
         askHrStatus.classList.add('hidden');
@@ -916,11 +963,6 @@
 
         if (!name || !email || !askHrContext) return;
 
-        // Persist identity for next time
-        try {
-            localStorage.setItem('askhr_identity', JSON.stringify({ name, email }));
-        } catch (e) { /* ignore */ }
-
         askHrSubmit.disabled = true;
         askHrStatus.classList.remove('hidden');
         askHrStatus.className = 'text-xs text-center text-neutral-500';
@@ -929,7 +971,7 @@
         try {
             const resp = await fetch('/api/ask-hr/', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: csrfHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({
                     conversation_id: currentConversationId,
                     name, email, note,
@@ -979,7 +1021,7 @@
         try {
             const resp = await fetch('/api/chat/', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: csrfHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({
                     message: text.trim(),
                     conversation_id: currentConversationId ? Number(currentConversationId) : null,
@@ -1065,6 +1107,12 @@
                         }
                         if (data.source) {
                             renderSource(bot, data.source, data.confidence);
+                        }
+                        // Refusals (confidential block or low-confidence) have
+                        // no source card, so surface a dedicated escalate button
+                        // that emails the question + bot reply to HR.
+                        if (data.escalate || data.confidence === 'refused') {
+                            showEscalateButton(bot);
                         }
                     } else if (data.type === 'error') {
                         if (!cleared) { bot.body.innerHTML = ''; cleared = true; }
@@ -1303,7 +1351,7 @@
         form.append('audio', blob, `recording.${extension}`);
 
         try {
-            const resp = await fetch('/api/transcribe/', { method: 'POST', body: form });
+            const resp = await fetch('/api/transcribe/', { method: 'POST', headers: csrfHeaders(), body: form });
             const data = await resp.json();
             if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
 

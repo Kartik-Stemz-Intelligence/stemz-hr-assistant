@@ -1,6 +1,11 @@
 import re
 from pathlib import Path
 
+try:
+    import yaml
+except ImportError:  # pragma: no cover - yaml ships with our deps
+    yaml = None
+
 
 # Frontmatter fields lifted onto every chunk. `title` from the frontmatter is
 # renamed to `doc_title` when copied onto a chunk, because `chunk['title']`
@@ -37,13 +42,29 @@ def _split_frontmatter(content):
     if not match:
         return {}, content
     frontmatter_raw, body = match.groups()
+    metadata = _parse_frontmatter(frontmatter_raw)
+    return metadata, body
+
+
+def _parse_frontmatter(frontmatter_raw):
+    """Parse YAML frontmatter. Prefer a real YAML parser (handles quotes,
+    colons in values, typed booleans); fall back to naive line splitting only
+    if PyYAML is unavailable or the block isn't a mapping.
+    """
+    if yaml is not None:
+        try:
+            loaded = yaml.safe_load(frontmatter_raw)
+            if isinstance(loaded, dict):
+                return {str(k): ('' if v is None else str(v)) for k, v in loaded.items()}
+        except yaml.YAMLError:
+            pass
     metadata = {}
     for line in frontmatter_raw.split('\n'):
         line = line.strip()
         if ':' in line:
             key, value = line.split(':', 1)
             metadata[key.strip()] = value.strip()
-    return metadata, body
+    return metadata
 
 
 def _chunk_base(metadata):
@@ -56,6 +77,9 @@ def _chunk_base(metadata):
     # existing citation code keeps working without a fallback everywhere.
     if 'document' not in base:
         base['document'] = base['doc_title']
+    # `confidential: true` in frontmatter flags a document the assistant must
+    # never answer from — every chunk carries the boolean for the guardrail.
+    base['confidential'] = str(metadata.get('confidential', '')).strip().lower() in ('true', 'yes', '1')
     return base
 
 

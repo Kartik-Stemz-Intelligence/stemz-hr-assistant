@@ -1,9 +1,12 @@
+import logging
 from anthropic import Anthropic
 from django.conf import settings
 
+logger = logging.getLogger(__name__)
 
 TITLER_MODEL = 'claude-haiku-4-5'
 MAX_TITLE_LEN = 120
+TITLER_TIMEOUT_S = 15
 
 
 def generate_title(first_user_message: str, first_bot_response: str) -> str:
@@ -19,7 +22,7 @@ def generate_title(first_user_message: str, first_bot_response: str) -> str:
         f"Assistant: {first_bot_response[:400].strip()}"
     )
     try:
-        client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        client = Anthropic(api_key=settings.ANTHROPIC_API_KEY, timeout=TITLER_TIMEOUT_S)
         resp = client.messages.create(
             model=TITLER_MODEL,
             max_tokens=30,
@@ -29,6 +32,7 @@ def generate_title(first_user_message: str, first_bot_response: str) -> str:
         title = _clean(text)
         return title[:MAX_TITLE_LEN] or _fallback(first_user_message)
     except Exception:
+        logger.warning("Title generation failed; falling back to truncated message", exc_info=True)
         return _fallback(first_user_message)
 
 

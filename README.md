@@ -42,7 +42,14 @@ python manage.py ingest_docs
 python manage.py runserver
 ```
 
-Open **http://localhost:8000/** and start chatting.
+Open **http://localhost:8000/**, register with your company email, and then start chatting.
+
+If your company email is something like `strategy.intern03@stemzglobal.com`, use that to create the account and log in. The app rejects self-registration from non-company addresses.
+
+Registration flow is now 3-step:
+1. Enter company email on the register page.
+2. Verify with the 6-digit code sent to that email.
+3. Set password and activate account, then continue to chat.
 
 ## Try these questions
 
@@ -125,6 +132,7 @@ hr-assistant/
 | `TOP_K` | `4` | Number of chunks retrieved per query |
 | `DJANGO_SECRET_KEY` | *(dev fallback)* | Django secret |
 | `DJANGO_DEBUG` | `True` | Debug mode |
+| `COMPANY_EMAIL_DOMAIN` | `stemzglobal.com` | Domain allowed to self-register |
 
 ## How the RAG loop works (a quick tour)
 

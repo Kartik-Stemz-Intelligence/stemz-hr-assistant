@@ -1,3 +1,5 @@
+import html
+
 from anthropic import Anthropic
 from django.conf import settings
 
@@ -7,13 +9,17 @@ from apps.rag.prompts.grounding import GROUNDING_SYSTEM_PROMPT, DOCUMENT_SYSTEM_
 def _format_context(retrieved):
     """Format retrieved chunks as numbered excerpts for the LLM."""
     parts = []
+    chunk_cap = settings.MAX_CONTEXT_CHARS_PER_CHUNK
     for i, item in enumerate(retrieved, start=1):
         c = item['chunk']
         version = f" (v{c['version']})" if c.get('version') else ''
+        excerpt = c['text']
+        if chunk_cap > 0 and len(excerpt) > chunk_cap:
+            excerpt = excerpt[:chunk_cap].rstrip() + '…'
         parts.append(
             f"[{i}] Section: {c['title']}\n"
             f"Document: {c['document']}{version}\n\n"
-            f"{c['text']}"
+            f"{excerpt}"
         )
     return '\n\n---\n\n'.join(parts)
 
@@ -48,7 +54,7 @@ def stream_answer(query, retrieved, prior_messages=None, model=None):
             The view escalates to CLAUDE_MODEL_ESCALATION for low-confidence
             queries.
     """
-    client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    client = Anthropic(api_key=settings.ANTHROPIC_API_KEY, timeout=settings.LLM_TIMEOUT_S)
     context = _format_context(retrieved)
     user_message = (
         f"<context>\n{context}\n</context>\n\n"
@@ -67,7 +73,7 @@ def stream_answer(query, retrieved, prior_messages=None, model=None):
 
     with client.messages.stream(
         model=model or settings.CLAUDE_MODEL_DEFAULT,
-        max_tokens=1024,
+        max_tokens=settings.MAX_LLM_TOKENS,
         system=system_blocks,
         messages=messages,
     ) as stream:
@@ -83,9 +89,12 @@ def stream_answer_from_document(query, document_text, filename, prior_messages=N
     - Puts the full document text directly in the user message
     - The document is cache-eligible (large static block reused across turns)
     """
-    client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    client = Anthropic(api_key=settings.ANTHROPIC_API_KEY, timeout=settings.LLM_TIMEOUT_S)
+    doc_text = document_text
+    if settings.MAX_DOCUMENT_CONTEXT_CHARS > 0 and len(doc_text) > settings.MAX_DOCUMENT_CONTEXT_CHARS:
+        doc_text = doc_text[:settings.MAX_DOCUMENT_CONTEXT_CHARS].rstrip() + '\n\n[Document truncated for speed]'
     user_message = (
-        f"<document filename=\"{filename}\">\n{document_text}\n</document>\n\n"
+        f"<document filename=\"{html.escape(filename or '', quote=True)}\">\n{doc_text}\n</document>\n\n"
         f"Question: {query}"
     )
     messages = _build_messages(prior_messages, user_message)
@@ -98,7 +107,7 @@ def stream_answer_from_document(query, document_text, filename, prior_messages=N
 
     with client.messages.stream(
         model=model or settings.CLAUDE_MODEL_DEFAULT,
-        max_tokens=1024,
+        max_tokens=settings.MAX_LLM_TOKENS,
         system=system_blocks,
         messages=messages,
     ) as stream:

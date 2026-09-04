@@ -7,17 +7,21 @@ os.environ.setdefault('TRANSFORMERS_OFFLINE', '1')
 os.environ.setdefault('HF_HUB_DISABLE_SYMLINKS_WARNING', '1')
 
 import numpy as np
+import threading
 from sentence_transformers import SentenceTransformer
 
 
 MODEL_NAME = 'BAAI/bge-large-en-v1.5'
 _MODEL = None
+_LOCK = threading.Lock()
 
 
 def _get_model():
     global _MODEL
     if _MODEL is None:
-        _MODEL = SentenceTransformer(MODEL_NAME)
+        with _LOCK:
+            if _MODEL is None:
+                _MODEL = SentenceTransformer(MODEL_NAME)
     return _MODEL
 
 

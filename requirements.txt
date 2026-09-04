@@ -1,10 +1,12 @@
 Django>=5.0,<6.0
-python-dotenv>=1.0.0
-anthropic>=0.30.0
-sentence-transformers>=3.0.0
-numpy>=1.26.0
-pytest>=8.0.0
-# Voice input (faster-whisper) — assumed already installed
+python-dotenv>=1.0.0,<2.0
+anthropic>=0.30.0,<1.0
+sentence-transformers>=3.0.0,<4.0
+numpy>=1.26.0,<3.0
+PyYAML>=6.0,<7.0
+pytest>=8.0.0,<9.0
+# Voice input (faster-whisper) - self-hosted Whisper inference
+faster-whisper>=1.0.0,<2.0
 # Uploaded-document mode: text extraction for PDF/DOCX
-PyMuPDF>=1.24.0
-python-docx>=1.1.0
+PyMuPDF>=1.24.0,<2.0
+python-docx>=1.1.0,<2.0
