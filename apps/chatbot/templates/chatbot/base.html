@@ -1,0 +1,50 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Stemz HR Assistant{% endblock %}</title>
+    <link rel="icon" type="image/png" href="{% static 'chatbot/stemz-logo.png' %}">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Stemz Healthcare brand palette — maroon wordmark + green tree/tagline.
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            DEFAULT: '#7a1b38',
+                            50:  '#f9e9ee',
+                            100: '#f0cdd8',
+                            200: '#e2a3b7',
+                            600: '#7a1b38',
+                            700: '#66152f',
+                            800: '#4f1025',
+                        },
+                        leaf: {
+                            DEFAULT: '#5fa524',
+                            50:  '#eef7e4',
+                            100: '#d8edc0',
+                            600: '#4f8a1e',
+                            700: '#3f6f18',
+                        },
+                    },
+                },
+            },
+        };
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        html, body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
+    </style>
+</head>
+<body class="h-full bg-neutral-50 text-neutral-900 antialiased">
+    {% block content %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,199 @@
+# Stemz HR Assistant — Phase 1
+
+Grounded RAG chatbot for HR policy Q&A. **Phase 1 scope**: single document
+(attendance policy), Django backend, clean Tailwind chat UI, in-memory
+retrieval, streaming responses, refusal below confidence threshold — no
+hallucination, no vector DB.
+
+## What Phase 1 proves
+
+1. The bot answers policy questions **only** from the ingested document, with
+   a `Source:` citation on every answer.
+2. When a question is out of scope (or the top-retrieval score falls below
+   `SIM_THRESHOLD`), the bot returns a **verbatim refusal message** without
+   ever calling the LLM.
+3. The RAG loop — ingest → retrieve → guardrail → generate — is modular and
+   swappable for later phases (multi-doc, pgvector, personalisation, Keka
+   integration).
+
+## Quick start
+
+```bash
+# 1. Create a virtualenv (Python 3.11+ recommended)
+python -m venv .venv
+.venv\Scripts\activate       # Windows PowerShell / cmd
+# source .venv/bin/activate  # macOS / Linux
+
+# 2. Install dependencies (first install may take a few minutes — torch is large)
+pip install -r requirements.txt
+
+# 3. Set up environment
+copy .env.example .env       # Windows
+# cp .env.example .env       # macOS / Linux
+# then edit .env and set your ANTHROPIC_API_KEY
+
+# 4. Run Django migrations
+python manage.py migrate
+
+# 5. Ingest policy documents (Markdown/PDF; downloads the embedding model on first run)
+python manage.py ingest_docs
+
+# 6. Run the dev server
+python manage.py runserver
+```
+
+Open **http://localhost:8000/**, register with your company email, and then start chatting.
+
+If your company email is something like `strategy.intern03@stemzglobal.com`, use that to create the account and log in. The app rejects self-registration from non-company addresses.
+
+Registration flow is now 3-step:
+1. Enter company email on the register page.
+2. Verify with the 6-digit code sent to that email.
+3. Set password and activate account, then continue to chat.
+
+## Try these questions
+
+**Grounded (should answer with a `Source:` citation):**
+
+- How many late arrivals are allowed per month?
+- How many WFH days can I take per month?
+- What is the notice period for a WFH request?
+- Can I raise an OD request for a past date?
+- What happens if I miss a swipe?
+
+**Out of scope (should return the refusal message):**
+
+- What is the maternity leave policy?
+- How much salary will I get this month?
+- What stock should I invest in?
+
+## Run the eval baseline
+
+```bash
+pytest
+```
+
+This runs the attendance-policy Q&A baseline (7 grounded + 4 refusal cases).
+Every future change (chunk size, embeddings, threshold, model swap) must keep
+these tests green.
+
+## Response behavior
+
+- Default answers are concise and policy-grounded.
+- Users can ask for a detailed response (for example: "explain in detail" or "step by step") to receive a longer answer, up to about 500 words.
+- The response still includes source attribution so users can verify policy text.
+
+## Chat history retention and cost
+
+Current behavior:
+- Chat history is stored in Conversation and Message tables in SQLite.
+- This is feasible and low-cost for pilot usage and internal testing.
+
+Recommended production approach:
+- Keep active chat history for 60 to 90 days for usability and auditability.
+- Archive older records to low-cost object storage for compliance lookups.
+- Add retention jobs to soft-delete or archive inactive conversations on a schedule.
+- Keep retrieval metadata while trimming long message bodies to control storage growth.
+
+Cost and usage note:
+- Storage cost is usually not the primary driver; LLM tokens are.
+- Concise-by-default answers reduce per-query token spend while preserving quality.
+
+## Project structure
+
+```
+hr-assistant/
+├── manage.py
+├── requirements.txt
+├── pytest.ini
+├── .env.example
+├── config/
+│   ├── settings/
+│   │   ├── base.py             # Shared settings
+│   │   └── dev.py              # Local development
+│   ├── urls.py
+│   ├── wsgi.py
+│   └── asgi.py
+├── apps/
+│   ├── knowledge/              # Document ingestion pipeline
+│   │   ├── services/
+│   │   │   ├── parser.py       # Markdown/PDF + frontmatter → chunks
+│   │   │   ├── embedder.py     # bge-small-en-v1.5 wrapper (swappable)
+│   │   │   └── ingest.py       # Orchestrator
+│   │   └── management/commands/ingest_docs.py
+│   ├── rag/                    # RAG loop — independent of UI
+│   │   ├── services/
+│   │   │   ├── retrieve.py     # Cosine similarity top-k
+│   │   │   ├── guardrail.py    # Threshold refusal (no LLM call)
+│   │   │   └── generate.py     # Grounded prompt → Claude streaming
+│   │   └── prompts/grounding.py
+│   └── chatbot/                # UI + endpoints
+│       ├── models.py           # Conversation, Message (audit log)
+│       ├── views.py            # SSE streaming endpoint
+│       ├── urls.py
+│       └── templates/chatbot/
+│           ├── base.html
+│           └── chat.html
+├── knowledge/
+│   ├── old-knowledge/          # Legacy markdown policy corpus (.md)
+│   └── pdf-knowledge/          # PDF policy corpus used for PDF ingestion tests
+├── data/                       # Generated at ingest time
+│   ├── chunks.json
+│   └── embeddings.npy
+└── tests/
+    ├── conftest.py             # Auto-ingest fixture
+    └── test_eval_baseline.py   # Regression eval bank
+```
+
+## Config (`.env`)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | *(required)* | Your Anthropic API key |
+| `CLAUDE_MODEL` | `claude-haiku-4-5-20251001` | Model for generation |
+| `SIM_THRESHOLD` | `0.35` | Below this top score → refuse without LLM call |
+| `TOP_K` | `4` | Number of chunks retrieved per query |
+| `DJANGO_SECRET_KEY` | *(dev fallback)* | Django secret |
+| `DJANGO_DEBUG` | `True` | Debug mode |
+| `COMPANY_EMAIL_DOMAIN` | `stemzglobal.com` | Domain allowed to self-register |
+
+## How the RAG loop works (a quick tour)
+
+1. **Ingest** (`manage.py ingest_docs`)
+   - Reads all `knowledge/*.md` and `knowledge/*.pdf`
+   - Parses YAML-style frontmatter (`--- ... ---`) when present
+   - Splits body by `##` headings into semantic chunks
+   - Embeds each chunk with `BAAI/bge-small-en-v1.5` (local, free)
+   - Saves `data/chunks.json` + `data/embeddings.npy`
+
+PDF authoring note:
+- For best chunking/citations, use text PDFs (not scanned images), include a frontmatter block on top, and keep section headings as `## Heading` lines.
+- Place policy test PDFs under `knowledge/pdf-knowledge/` to keep markdown and PDF corpora organized.
+
+2. **Retrieve** (`apps/rag/services/retrieve.py`)
+   - Embeds the user query with the same model
+   - Computes cosine similarity against all chunk embeddings
+   - Returns top-K chunks with scores
+
+3. **Guardrail** (`apps/rag/services/guardrail.py`)
+   - If `top_score < SIM_THRESHOLD`, returns the refusal message immediately
+   - **No LLM call is made** — this is the primary anti-hallucination lever
+
+4. **Generate** (`apps/rag/services/generate.py`)
+   - Formats retrieved chunks as numbered `<context>` excerpts
+   - Sends grounding system prompt + user query to Claude
+   - Streams tokens back to the UI via Server-Sent Events
+
+5. **Log** (`apps/chatbot/models.py`)
+   - Every Q&A is logged with the retrieved chunk titles and top score
+   - Feeds later phases (analytics, KB-gap detection, eval bank growth)
+
+## What Phase 1 intentionally excludes
+
+- Multiple documents (Phase 2)
+- Real vector store — Chroma/pgvector (Phase 2)
+- Candidate-uploaded personal docs / offer letter (Phase 3)
+- Personalised salary explainer (Phase 3)
+- Full lifecycle memory / stage awareness (Phase 4)
+- Keka read-only integration (Phase 5)
+- Voice input, HR admin panel, analytics dashboard (Phase 6)
