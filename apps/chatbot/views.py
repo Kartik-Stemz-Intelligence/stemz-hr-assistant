@@ -5,6 +5,7 @@ import secrets
 import tempfile
 from datetime import timedelta
 from functools import wraps
+from urllib.parse import quote
 
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
@@ -17,10 +18,12 @@ from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 from django.http import StreamingHttpResponse, JsonResponse, HttpResponse, FileResponse
 from django.shortcuts import render, get_object_or_404, redirect
+from django.utils.html import escape
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST, require_GET, require_http_methods
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 
 from apps.rag.services.retrieve import retrieve
 from apps.rag.services.guardrail import (
@@ -30,6 +33,7 @@ from apps.rag.services.guardrail import (
 from apps.rag.services.generate import stream_answer, stream_answer_from_document
 from apps.chatbot.services.asr import transcribe as asr_transcribe
 from apps.chatbot.services.dashboard import load_documents
+from apps.chatbot.services.titler import generate_title
 from apps.chatbot.services.document import (
     extract_text as extract_document_text,
     DocumentError, MAX_UPLOAD_BYTES, SUPPORTED_EXTS,
@@ -314,7 +318,7 @@ def _source_info(chunk):
         'source_file': source_file,
         'source_type': chunk.get('source_type', ''),
         'page_number': page_number,
-        'citation_link': f'/view-document/?file={source_file}&page={page_number}' if source_file else '',
+        'citation_link': f'/view-document/?file={quote(source_file)}&page={page_number}' if source_file else '',
     }
 
 
@@ -972,15 +976,11 @@ def _stream_document_answer(query, uploaded, conversation, is_first_exchange, pr
 
 
 def _maybe_generate_title(conversation, is_first_exchange, user_msg, bot_msg):
-    """Assign a cheap local title on first exchange to avoid extra LLM latency."""
+    """Assign an intent-based title (like ChatGPT) on the first exchange."""
     if not is_first_exchange or conversation.title:
         return
-    title = ' '.join((user_msg or '').split())[:60].strip()
-    if len(user_msg or '') > 60:
-        title = f'{title}…'
-    if not title:
-        title = f'Conversation #{conversation.pk}'
-    conversation.title = title
+    title = generate_title(user_msg or '', bot_msg or '')
+    conversation.title = title or f'Conversation #{conversation.pk}'
     conversation.save(update_fields=['title', 'updated_at'])
 
 
@@ -1086,12 +1086,20 @@ def upload_document(request):
 
 # ---------------------------------------------------------------- Document viewer
 
+@xframe_options_sameorigin
 def view_document(request):
-    """Serve a lightweight viewer page for a citation link (?file=&page=).
+    """Serve a viewer page for a citation link (?file=&page=).
 
-    Only files inside knowledge/new-knowledge/ can be referenced. The filename
-    is resolved strictly under that directory to block path traversal
-    (e.g. '..\\..\\secrets.txt').
+    PDFs render inline (browser's built-in PDF viewer) jumped to the cited
+    page, with a note banner calling out why that page opened. Non-PDF
+    formats (e.g. .docx, which browsers can't render inline) fall back to a
+    download card. Only files directly under KNOWLEDGE_DIR can be
+    referenced — the filename is resolved strictly under that directory to
+    block path traversal (e.g. '..\\..\\secrets.txt').
+
+    Django's X_FRAME_OPTIONS default is DENY, which would block the raw PDF
+    response from rendering inside our own same-origin iframe below — relax
+    that to SAMEORIGIN just for this view.
     """
     filename = (request.GET.get('file') or '').strip()
     if not filename or '/' in filename or '\\' in filename or '..' in filename:
@@ -1101,21 +1109,52 @@ def view_document(request):
         page = int(request.GET.get('page', 1))
     except (TypeError, ValueError):
         page = 1
+    page = max(page, 1)
 
-    docs_dir = (settings.KNOWLEDGE_DIR / 'new-knowledge').resolve()
+    docs_dir = settings.KNOWLEDGE_DIR.resolve()
     file_path = (docs_dir / filename).resolve()
     if docs_dir not in file_path.parents or not file_path.is_file():
         return HttpResponse('Document not found.', status=404)
 
+    is_pdf = file_path.suffix.lower() == '.pdf'
+    encoded_name = quote(filename)
+    safe_name = escape(filename)
+    download_url = f'/view-document/?file={encoded_name}&page={page}&download=1'
+
     if request.GET.get('download') == '1':
         return FileResponse(open(file_path, 'rb'), as_attachment=True, filename=filename)
 
-    download_url = f'/view-document/?file={filename}&page={page}&download=1'
+    if is_pdf and request.GET.get('raw') == '1':
+        # Served inline (no Content-Disposition: attachment) so the iframe's
+        # built-in PDF viewer renders it instead of prompting a download.
+        return FileResponse(open(file_path, 'rb'), content_type='application/pdf', filename=filename)
+
+    if is_pdf:
+        raw_url = f'/view-document/?file={encoded_name}&page={page}&raw=1'
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{safe_name} — Page {page}</title>
+<style>
+html, body {{ height:100%; margin:0; font-family: system-ui, sans-serif; background:#f8f8f8; }}
+.note {{ display:flex; align-items:center; gap:.5rem; background:#7a1b38; color:#fff; padding:.6rem 1rem; font-size:.9rem; font-weight:600; }}
+.note a {{ color:#fff; text-decoration:underline; margin-left:auto; font-weight:500; font-size:.8rem; }}
+iframe {{ width:100%; height:calc(100% - 2.6rem); border:none; }}
+</style>
+</head>
+<body>
+<div class="note">📍 The information related to your question is on page {page} of this document.<a href="{download_url}">Download</a></div>
+<iframe src="{raw_url}#page={page}" title="{safe_name}"></iframe>
+</body>
+</html>"""
+        return HttpResponse(html)
+
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>{filename} — Page {page}</title>
+<title>{safe_name} — Page {page}</title>
 <style>
 body {{ font-family: system-ui, sans-serif; background:#f8f8f8; padding:2rem; color:#1f2933; }}
 .card {{ max-width: 520px; margin: 0 auto; background:#fff; border-radius:12px; padding:2rem; box-shadow:0 10px 30px rgba(15,23,42,.08); }}
@@ -1124,10 +1163,10 @@ a.button {{ display:inline-block; margin-top:1rem; background:#7a1b38; color:#ff
 </head>
 <body>
 <div class="card">
-<h1>{filename}</h1>
-<p>This citation points to page {page} of the source document.</p>
-<p>Download the file below to view it at that page in Word, Acrobat, or your local viewer.</p>
-<a class="button" href="{download_url}">Download {filename}</a>
+<h1>{safe_name}</h1>
+<p>📍 The information related to your question is on page {page} of this document.</p>
+<p>Download the file below to view it at that page in Word or your local viewer.</p>
+<a class="button" href="{download_url}">Download {safe_name}</a>
 </div>
 </body>
 </html>"""

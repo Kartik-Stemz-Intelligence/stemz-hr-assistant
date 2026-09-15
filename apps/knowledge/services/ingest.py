@@ -9,8 +9,17 @@ from .parser import parse_document
 from .embedder import embed_batch
 
 
+def _authoritative_path(doc_path):
+    path = Path(doc_path).resolve()
+    source_root = settings.KNOWLEDGE_DIR.resolve()
+    if path.parent != source_root:
+        raise ValueError(f'Knowledge files must come directly from {source_root}')
+    return path
+
+
 def _chunks_and_embeddings(doc_path):
     """Parse one supported document into chunks + embeddings (no writes)."""
+    doc_path = _authoritative_path(doc_path)
     metadata, chunks = parse_document(doc_path)
     if not chunks:
         raise ValueError(f'No chunks found in {doc_path} — check that it has ## headings.')
@@ -58,7 +67,9 @@ def ingest_all(knowledge_dir=None, include_md=True, include_pdf=True, include_do
     if not include_md and not include_pdf and not include_docx:
         raise ValueError('At least one document type must be enabled for ingestion.')
 
-    knowledge_dir = Path(knowledge_dir or settings.KNOWLEDGE_DIR)
+    knowledge_dir = Path(knowledge_dir or settings.KNOWLEDGE_DIR).resolve()
+    if knowledge_dir != settings.KNOWLEDGE_DIR.resolve():
+        raise ValueError(f'Knowledge files must come from {settings.KNOWLEDGE_DIR.resolve()}')
     doc_files = []
     if include_md:
         doc_files.extend(sorted(knowledge_dir.rglob('*.md')))

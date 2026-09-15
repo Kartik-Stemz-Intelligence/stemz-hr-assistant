@@ -56,7 +56,7 @@
 
         <main id="messages" class="flex-1 overflow-y-auto px-6 py-8 space-y-6">
             <div id="emptyState" class="text-center max-w-md mx-auto mt-16">
-                <img src="{% static 'chatbot/stemz-logo.png' %}" alt="Stemz Healthcare" class="h-16 w-auto mx-auto mb-5 object-contain">
+                <img src="{% static 'stemz-logo.png' %}" alt="Stemz Healthcare" class="h-16 w-auto mx-auto mb-5 object-contain">
                 <h2 class="text-lg font-semibold text-neutral-900 mb-2">How can I help?</h2>
                 <p class="text-sm text-neutral-500 mb-6">Ask me anything about Stemz HR policies. Access is limited to signed-in employees, and I answer only from current policy documents.</p>
                 <div class="grid grid-cols-1 gap-2 text-left">
@@ -514,7 +514,7 @@
             .map(s => `<button type="button" class="suggestion text-sm text-neutral-700 border border-neutral-200 rounded-lg px-4 py-2 hover:bg-brand-50 hover:border-brand-100 transition text-left">${escapeHtml(s)}</button>`)
             .join('');
         wrap.innerHTML = `
-            <img src="{% static 'chatbot/stemz-logo.png' %}" alt="Stemz Healthcare" class="h-16 w-auto mx-auto mb-5 object-contain">
+            <img src="{% static 'stemz-logo.png' %}" alt="Stemz Healthcare" class="h-16 w-auto mx-auto mb-5 object-contain">
             <h2 class="text-lg font-semibold text-neutral-900 mb-2">How can I help?</h2>
             <p class="text-sm text-neutral-500 mb-6">Ask me anything about Stemz HR policies. I answer only from current policy documents.</p>
             <div class="grid grid-cols-1 gap-2 text-left">${suggestionsHtml}</div>
@@ -697,15 +697,27 @@
 
     // ---------- Fetching ----------
     async function loadConversations() {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
         try {
-            const resp = await fetch('/api/conversations/');
+            const resp = await fetch('/api/conversations/', {
+                credentials: 'same-origin',
+                signal: controller.signal,
+            });
+            if (resp.status === 401) {
+                window.location.href = `/login/?next=${encodeURIComponent(window.location.pathname)}`;
+                return;
+            }
             if (!resp.ok) throw new Error('Failed to load conversations');
             const data = await resp.json();
             conversations = data.conversations;
             renderSidebar();
         } catch (err) {
             console.error(err);
-            convList.innerHTML = '<div class="text-xs text-rose-500 text-center py-8">Failed to load</div>';
+            const message = err.name === 'AbortError' ? 'Loading timed out' : 'Failed to load';
+            convList.innerHTML = `<div class="text-xs text-rose-500 text-center py-8">${message}</div>`;
+        } finally {
+            clearTimeout(timeout);
         }
     }
 
@@ -898,7 +910,6 @@
         }
         
         bot.srcMeta.textContent = parts.join(' · ') || 'Metadata pending HR review';
-
         // Confidence-based source card styling.
         if (confidence === 'medium') {
             bot.sourceCard.className = `${cardBase} bg-amber-50 border-amber-200`;
@@ -909,7 +920,6 @@
         }
 
         bot.sourceCard.classList.remove('hidden');
-        
         // Add citation link button if available
         console.log('renderSource - source.citation_link:', source.citation_link);
         if (source.citation_link) {
@@ -932,9 +942,7 @@
                 console.log('Button inserted successfully');
             }
         }
-        
         wireExcerptActions(bot, source.excerpt || '');
-
     }
 
     // ---------- Uploaded document ----------

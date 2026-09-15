@@ -89,8 +89,9 @@ def _fallback(message: str, assistant_response: str = '') -> str:
     if summary and len(summary.split()) >= 2:
         return summary[:MAX_TITLE_LEN]
 
-    trimmed = (message or '').strip().replace('\n', ' ')
-    return (trimmed[:57] + '…') if len(trimmed) > 60 else (trimmed or 'New chat')
+    # Never use the full question as a title. Keep the sidebar label topic-like
+    # even when the title API is unavailable or returns unusable text.
+    return 'HR Question' if message or assistant_response else 'New chat'
 
 
 def _keyword_summary(text: str) -> str:

@@ -46,16 +46,14 @@ class RagConfig(AppConfig):
 def _warm_models():
     """Force embedder + reranker weights to load into RAM.
 
-    Both models load in parallel threads so wall-clock startup is bounded by
-    the slower of the two (~60s), not their sum (~100s). Each model's own
-    singleton is guarded by its own lock (see embedder.py / reranker.py), so
-    there is no cross-thread coordination needed here.
+    Loaded sequentially, not in parallel threads: transformers'/accelerate's
+    meta-device model init is not thread-safe, and constructing both models
+    concurrently corrupts one of them (`Cannot copy out of meta tensor`).
     """
     import time
-    import threading
 
     started = time.time()
-    print('[warmup] Loading embedder + reranker in parallel…')
+    print('[warmup] Loading embedder + reranker…')
 
     timings = {}
     errors = {}
@@ -78,10 +76,8 @@ def _warm_models():
         except Exception as exc:
             errors['reranker'] = exc
 
-    t1 = threading.Thread(target=load_embedder, name='warm-embedder', daemon=True)
-    t2 = threading.Thread(target=load_reranker, name='warm-reranker', daemon=True)
-    t1.start(); t2.start()
-    t1.join();  t2.join()
+    load_embedder()
+    load_reranker()
 
     total = time.time() - started
     emb_t = timings.get('embedder', 0)
@@ -94,5 +90,5 @@ def _warm_models():
     else:
         print(
             f'[warmup] Ready in {total:.1f}s '
-            f'(embedder {emb_t:.1f}s + reranker {rrk_t:.1f}s in parallel).'
+            f'(embedder {emb_t:.1f}s + reranker {rrk_t:.1f}s).'
         )

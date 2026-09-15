@@ -15,5 +15,10 @@ def ensure_ingested():
     emb_path = settings.DATA_DIR / 'embeddings.npy'
     if not chunks_path.exists() or not emb_path.exists():
         from apps.knowledge.services.ingest import ingest_document
-        ingest_document(str(settings.KNOWLEDGE_DIR / 'old-knowledge' / 'attendance-policy.md'))
+        source = next(settings.KNOWLEDGE_DIR.glob('*.md'), None)
+        if source is None:
+            source = next(settings.KNOWLEDGE_DIR.glob('*.pdf'), None)
+        if source is None:
+            source = next(settings.KNOWLEDGE_DIR.glob('*.docx'))
+        ingest_document(str(source))
     yield

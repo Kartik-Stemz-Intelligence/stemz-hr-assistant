@@ -20,3 +20,4 @@ urlpatterns = [
     path('api/upload/', views.upload_document, name='upload_document'),
     path('view-document/', views.view_document, name='view_document'),  # Document viewer endpoint
 ]
+
