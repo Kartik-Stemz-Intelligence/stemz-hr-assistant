@@ -218,6 +218,8 @@
     </div>
 </div>
 
+<div id="notificationToast" class="hidden fixed right-5 top-5 z-[60] max-w-sm rounded-xl border border-leaf-200 bg-white px-4 py-3 text-sm text-neutral-800 shadow-lg" role="status" aria-live="polite"></div>
+
 <!-- ================================ SCRIPT ================================ -->
 <script>
 (function() {
@@ -236,6 +238,7 @@
     const micBtn = document.getElementById('micBtn');
     const contactHrBtn = document.getElementById('contactHrBtn');
     const contactHrLabel = document.getElementById('contactHrLabel');
+    const notificationToast = document.getElementById('notificationToast');
     // Ask HR modal
     const askHrModal = document.getElementById('askHrModal');
     const askHrForm = document.getElementById('askHrForm');
@@ -248,6 +251,15 @@
     const askHrQuestion = document.getElementById('askHrQuestion');
     const askHrAnswer = document.getElementById('askHrAnswer');
     const askHrAnswerBox = document.getElementById('askHrAnswerBox');
+
+    function showNotification(message, tone = 'success') {
+        notificationToast.textContent = message;
+        notificationToast.className = tone === 'error'
+            ? 'fixed right-5 top-5 z-[60] max-w-sm rounded-xl border border-rose-200 bg-white px-4 py-3 text-sm text-rose-700 shadow-lg'
+            : 'fixed right-5 top-5 z-[60] max-w-sm rounded-xl border border-leaf-200 bg-white px-4 py-3 text-sm text-neutral-800 shadow-lg';
+        clearTimeout(showNotification.timer);
+        showNotification.timer = setTimeout(() => notificationToast.classList.add('hidden'), 7000);
+    }
     const askHrStatus = document.getElementById('askHrStatus');
     const authUserName = "{{ request.user.get_full_name|default:request.user.email|escapejs }}";
     const authUserEmail = "{{ request.user.email|escapejs }}";
@@ -1245,6 +1257,13 @@
                             setConfidence(bot.confidence, data.confidence);
                             bot.confidence.classList.remove('hidden');
                             styleContactHrBtn(data.confidence);
+                        }
+                        if (data.auto_escalated) {
+                            if (data.email_status === 'sent') {
+                                showNotification('Your query was sent to HR. They will reply to you directly.');
+                            } else {
+                                showNotification('Your query was saved for HR, but the email could not be sent. HR can still review it.', 'error');
+                            }
                         }
                         if (data.source) {
                             renderSource(bot, data.source, data.confidence);
